@@ -55,13 +55,13 @@ def compute_cue(lue: NDArray, iwue: NDArray) -> NDArray:
     return 0.2 + cue_raw * (0.9 - 0.2)
 
 
-def compute_growing_season(temp: NDArray, threshold: float) -> NDArray:
+def compute_growing_season(temperature: NDArray, threshold: float) -> NDArray:
     """
     Compute boolean mask for growing season based on temperature threshold.
 
     Parameters
     ----------
-    temp : NDArray
+    temperature : NDArray
         Temperature values (degC).
     threshold : float
         Minimum temperature for growing season (degC).
@@ -71,7 +71,7 @@ def compute_growing_season(temp: NDArray, threshold: float) -> NDArray:
     NDArray
         Boolean array indicating growing season.
     """
-    return temp > threshold
+    return temperature > threshold
 
 
 def compute_relative_changes(values: NDArray) -> NDArray:
@@ -132,7 +132,7 @@ def get_allocation_bases(plant_type: str) -> tuple[float, float, float]:
     Returns
     -------
     tuple[float, float, float]
-        Base allocation percentages for (leaves, stem, roots).
+        Base allocation percentages for (leaf, stem, root).
 
     Raises
     ------
@@ -153,62 +153,58 @@ def get_allocation_bases(plant_type: str) -> tuple[float, float, float]:
 
 
 def compute_allocation_percentages(
-    temp: NDArray,
-    doy: NDArray,
+    temperature: NDArray,
+    day_of_year: NDArray,
     soil_moisture: NDArray,
     vpd: NDArray,
     moisture_threshold: float,
     vpd_max: float,
-    base_leaves: float,
+    base_leaf: float,
     base_stem: float,
-    base_roots: float,
+    base_root: float,
 ) -> dict[str, NDArray]:
     """
     Compute dynamic allocation percentages based on environmental factors.
 
     Parameters
     ----------
-    temp : NDArray
+    temperature : NDArray
         Temperature values (degC).
-    doy : NDArray
+    day_of_year : NDArray
         Day of year values.
     soil_moisture : NDArray
         Soil moisture values.
     vpd : NDArray
         Vapor pressure deficit values (Pa).
-    ts : float
-        Timestep in days.
     moisture_threshold : float
         Threshold for soil moisture stress.
     vpd_max : float
         Maximum VPD value.
-    base_leaves : float
-        Base allocation fraction for leaves.
+    base_leaf : float
+        Base allocation fraction for leaf.
     base_stem : float
         Base allocation fraction for stem.
-    base_roots : float
-        Base allocation fraction for roots.
+    base_root : float
+        Base allocation fraction for root.
 
     Returns
     -------
     dict[str, NDArray]
-        Dictionary with allocation percentages for 'leaves', 'stem', 'roots'.
+        Dictionary with allocation percentages for 'leaf', 'stem', 'root'.
     """
-    seasonality_mod = np.sin(2 * np.pi * doy / 365.0)
-    temp_mod = (temp - 20) / 100
+    seasonality_mod = np.sin(2 * np.pi * day_of_year / 365.0)
+    temp_mod = (temperature - 20) / 100
 
-    dynamic_leaves = np.maximum(
-        0, base_leaves + 0.15 * seasonality_mod + 0.1 * temp_mod
-    )
-    dynamic_roots = np.maximum(0, base_roots - 0.15 * seasonality_mod - 0.05 * temp_mod)
+    dynamic_leaf = np.maximum(0, base_leaf + 0.15 * seasonality_mod + 0.1 * temp_mod)
+    dynamic_root = np.maximum(0, base_root - 0.15 * seasonality_mod - 0.05 * temp_mod)
     dynamic_stem = np.maximum(0, base_stem - 0.05 * temp_mod)
 
-    total_dynamic = dynamic_leaves + dynamic_stem + dynamic_roots
+    total_dynamic = dynamic_leaf + dynamic_stem + dynamic_root
     total_dynamic = np.maximum(total_dynamic, 1e-10)
 
-    dynamic_leaves = dynamic_leaves / total_dynamic
+    dynamic_leaf = dynamic_leaf / total_dynamic
     dynamic_stem = dynamic_stem / total_dynamic
-    dynamic_roots = dynamic_roots / total_dynamic
+    dynamic_root = dynamic_root / total_dynamic
 
     drought_modifier = compute_drought_modifier(
         soil_moisture, vpd, moisture_threshold, vpd_max
@@ -217,17 +213,17 @@ def compute_allocation_percentages(
     root_adjustment = drought_modifier * 0.1
     leaf_stem_adjustment = -drought_modifier * 0.1
 
-    final_roots = np.maximum(0, dynamic_roots + root_adjustment)
-    final_leaves = np.maximum(0, dynamic_leaves + leaf_stem_adjustment * 0.7)
+    final_root = np.maximum(0, dynamic_root + root_adjustment)
+    final_leaf = np.maximum(0, dynamic_leaf + leaf_stem_adjustment * 0.7)
     final_stem = np.maximum(0, dynamic_stem + leaf_stem_adjustment * 0.3)
 
-    total_percentage = final_leaves + final_stem + final_roots
+    total_percentage = final_leaf + final_stem + final_root
     total_percentage = np.maximum(total_percentage, 1e-10)
 
     return {
-        "leaves": final_leaves / total_percentage,
+        "leaf": final_leaf / total_percentage,
         "stem": final_stem / total_percentage,
-        "roots": final_roots / total_percentage,
+        "root": final_root / total_percentage,
     }
 
 
@@ -252,7 +248,7 @@ def solve_pool_recurrence(initial_pool: float, a: NDArray, b: NDArray) -> NDArra
         Initial pool value at start of epoch.
     a : NDArray
         Coefficients where pool[i+1] = a[i] * pool[i] + b[i].
-        Computed as: a = 1 - turnover_factor * litter_cue_modifier / ts.
+        Computed as: a = 1 - turnover_factor * litter_cue_modifier / timestep.
     b : NDArray
         Net flux (allocated - respiration).
 
@@ -296,13 +292,13 @@ def find_epoch_boundaries(disturbance_mask: NDArray) -> list[tuple[int, int]]:
     list[tuple[int, int]]
         List of (start, end) tuples for each epoch.
     """
-    n = len(disturbance_mask)
+    n_timesteps = len(disturbance_mask)
     epochs = []
 
     disturbance_indices = np.where(disturbance_mask)[0]
 
     if len(disturbance_indices) == 0:
-        return [(0, n)]
+        return [(0, n_timesteps)]
 
     if disturbance_indices[0] > 0:
         epochs.append((0, disturbance_indices[0]))
@@ -313,7 +309,7 @@ def find_epoch_boundaries(disturbance_mask: NDArray) -> list[tuple[int, int]]:
         if start < end:
             epochs.append((start, end))
 
-    if disturbance_indices[-1] < n - 1:
-        epochs.append((disturbance_indices[-1] + 1, n))
+    if disturbance_indices[-1] < n_timesteps - 1:
+        epochs.append((disturbance_indices[-1] + 1, n_timesteps))
 
     return epochs
