@@ -157,7 +157,6 @@ def compute_allocation_percentages(
     doy: NDArray,
     soil_moisture: NDArray,
     vpd: NDArray,
-    ts: float,
     moisture_threshold: float,
     vpd_max: float,
     base_leaves: float,

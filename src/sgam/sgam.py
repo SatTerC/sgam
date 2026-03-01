@@ -88,6 +88,7 @@ class SgamComponent:
         leaf_carbon_area: float = 30.0,
         disturbance_limit: float = 0.3,
         growing_season_limit: float = 10.0,
+        timestep: float = 1.0,
     ):
         self.plant_type = plant_type
         self.leaf_pool_init = leaf_pool_init
@@ -99,6 +100,7 @@ class SgamComponent:
         self.leaf_carbon_area = leaf_carbon_area
         self.disturbance_limit = disturbance_limit
         self.growing_season_limit = growing_season_limit
+        self.timestep = timestep
 
     def __call__(
         self,
@@ -145,12 +147,6 @@ class SgamComponent:
             - 'cue': Carbon use efficiency timeseries.
             - 'disturbance': Carbon loss due to disturbance/harvest.
         """
-        n = len(temp_degC)
-        if n > 1:
-            ts = 1
-        else:
-            ts = 1
-
         outputs = self._run_sgam(
             soil_moisture=soil_moisture,
             gpp=gpp,
@@ -160,7 +156,7 @@ class SgamComponent:
             vpd=vpd_Pa,
             lai_obs=lai_obs,
             doy=dayofyear,
-            ts=ts,
+            ts=self.timestep,
         )
 
         return outputs
@@ -224,7 +220,6 @@ class SgamComponent:
             doy,
             soil_moisture,
             vpd,
-            ts,
             moisture_threshold,
             vpd_max,
             base_leaves,
@@ -328,20 +323,12 @@ class SgamComponent:
             pool_before_stem = np.empty(epoch_length)
             pool_before_roots = np.empty(epoch_length)
 
-            p_leaves = current_leaves
-            p_stem = current_stem
-            p_roots = current_roots
-
-            for i in range(epoch_length):
-                pool_before_leaves[i] = p_leaves
-                pool_before_stem[i] = p_stem
-                pool_before_roots[i] = p_roots
-                k_leaves = turnover_factor_leaves * lcm_epoch[i] / ts
-                k_stem = turnover_factor_stem * lcm_epoch[i] / ts
-                k_roots = turnover_factor_roots * lcm_epoch[i] / ts
-                p_leaves = p_leaves * (1 - k_leaves) + b_leaves[i]
-                p_stem = p_stem * (1 - k_stem) + b_stem[i]
-                p_roots = p_roots * (1 - k_roots) + b_roots[i]
+            pool_before_leaves[0] = current_leaves
+            pool_before_stem[0] = current_stem
+            pool_before_roots[0] = current_roots
+            pool_before_leaves[1:] = leaves[epoch_slice][:-1]
+            pool_before_stem[1:] = stem[epoch_slice][:-1]
+            pool_before_roots[1:] = roots[epoch_slice][:-1]
 
             litter2soil[epoch_slice] = (
                 pool_before_leaves * turnover_factor_leaves / ts * lcm_epoch
