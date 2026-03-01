@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from sgam!")
+from .sgam import SgamComponent as SgamComponent
