@@ -1,1 +1,3 @@
 .envrc
+site/
+__pycache__/
