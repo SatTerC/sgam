@@ -10,12 +10,12 @@ respiration, and disturbance events.
 import numpy as np
 from numpy.typing import NDArray
 
+from .pft import PlantFunctionalType, PFT_PARAMS
 from .utils import (
     compute_cue,
     compute_growing_season,
     compute_relative_changes,
     compute_drought_modifier,
-    get_allocation_bases,
     compute_allocation_percentages,
     solve_pool_recurrence,
     find_epoch_boundaries,
@@ -31,26 +31,26 @@ class SgamComponent:
 
     Parameters
     ----------
-        plant_type : str
-            Type of plant ('tree', 'grass', 'crop', or 'shrub').
+        plant_type : PlantFunctionalType
+            Type of plant (tree, grass, crop, or shrub).
         leaf_pool_init: float
             Initial leaf carbon pool size.
         stem_pool_init: float
             Initial stem carbon pool size.
         root_pool_init: float
             Initial root carbon pool size.
-        leaf_turnover_rate : float, optional
-            Daily turnover rate for leaf (default: 0.01).
-        stem_turnover_rate : float, optional
-            Daily turnover rate for stem (default: 0.0001).
-        root_turnover_rate : float, optional
-            Daily turnover rate for root (default: 0.005).
-        leaf_carbon_area : float, optional
-            Leaf carbon area conversion factor (default: 30.0).
-        disturbance_limit : float, optional
-            Threshold for detecting disturbance/harvest events (default: 0.3).
-        growing_season_limit : float, optional
-            Minimum temperature (degC) for growing season (default: 10).
+        leaf_turnover_rate : float | None, optional
+            Daily turnover rate for leaf. Uses PFT default if None.
+        stem_turnover_rate : float | None, optional
+            Daily turnover rate for stem. Uses PFT default if None.
+        root_turnover_rate : float | None, optional
+            Daily turnover rate for root. Uses PFT default if None.
+        leaf_carbon_area : float | None, optional
+            Leaf carbon area conversion factor. Uses PFT default if None.
+        disturbance_limit : float | None, optional
+            Threshold for detecting disturbance/harvest events. Uses PFT default if None.
+        growing_season_limit : float | None, optional
+            Minimum temperature (degC) for growing season. Uses PFT default if None.
         timestep : float, optional
             Timestep in days (default: 1.0).
 
@@ -80,28 +80,54 @@ class SgamComponent:
 
     def __init__(
         self,
-        plant_type: str,
+        plant_type: PlantFunctionalType,
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
-        leaf_turnover_rate: float = 0.01,
-        stem_turnover_rate: float = 0.0001,
-        root_turnover_rate: float = 0.005,
-        leaf_carbon_area: float = 30.0,
-        disturbance_limit: float = 0.3,
-        growing_season_limit: float = 10.0,
+        leaf_turnover_rate: float | None = None,
+        stem_turnover_rate: float | None = None,
+        root_turnover_rate: float | None = None,
+        leaf_carbon_area: float | None = None,
+        disturbance_limit: float | None = None,
+        growing_season_limit: float | None = None,
         timestep: float = 1.0,
     ):
+        pft_params = PFT_PARAMS[plant_type]
+
         self.plant_type = plant_type
         self.leaf_pool_init = leaf_pool_init
         self.stem_pool_init = stem_pool_init
         self.root_pool_init = root_pool_init
-        self.leaf_turnover_rate = leaf_turnover_rate
-        self.stem_turnover_rate = stem_turnover_rate
-        self.root_turnover_rate = root_turnover_rate
-        self.leaf_carbon_area = leaf_carbon_area
-        self.disturbance_limit = disturbance_limit
-        self.growing_season_limit = growing_season_limit
+        self.leaf_turnover_rate = (
+            leaf_turnover_rate
+            if leaf_turnover_rate is not None
+            else pft_params.leaf_turnover_rate
+        )
+        self.stem_turnover_rate = (
+            stem_turnover_rate
+            if stem_turnover_rate is not None
+            else pft_params.stem_turnover_rate
+        )
+        self.root_turnover_rate = (
+            root_turnover_rate
+            if root_turnover_rate is not None
+            else pft_params.root_turnover_rate
+        )
+        self.leaf_carbon_area = (
+            leaf_carbon_area
+            if leaf_carbon_area is not None
+            else pft_params.leaf_carbon_area
+        )
+        self.disturbance_limit = (
+            disturbance_limit
+            if disturbance_limit is not None
+            else pft_params.disturbance_limit
+        )
+        self.growing_season_limit = (
+            growing_season_limit
+            if growing_season_limit is not None
+            else pft_params.growing_season_limit
+        )
         self.timestep = timestep
 
     def __call__(
@@ -206,8 +232,7 @@ class SgamComponent:
         """
         n_timesteps = len(gpp)
 
-        plant_type_lower = self.plant_type.lower()
-        base_leaf, base_stem, base_root = get_allocation_bases(plant_type_lower)
+        pft_params = PFT_PARAMS[self.plant_type]
 
         cue = compute_cue(lue, iwue)
         growing_season = compute_growing_season(temperature, self.growing_season_limit)
@@ -224,9 +249,9 @@ class SgamComponent:
             vpd,
             moisture_threshold,
             vpd_max,
-            base_leaf,
-            base_stem,
-            base_root,
+            pft_params.leaf_base_allocation,
+            pft_params.stem_base_allocation,
+            pft_params.root_base_allocation,
         )
 
         leaf_allocation_percentage = allocation["leaf"]
@@ -270,7 +295,7 @@ class SgamComponent:
         npp_out = np.zeros(n_timesteps)
         disturbance = np.zeros(n_timesteps)
 
-        is_crop = plant_type_lower == "crop"
+        is_crop = self.plant_type is PlantFunctionalType.CROP
 
         for epoch_start, epoch_end in epochs:
             epoch_slice = slice(epoch_start, epoch_end)

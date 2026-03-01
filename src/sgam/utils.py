@@ -120,38 +120,6 @@ def compute_drought_modifier(
     return (1 - normalized_moisture) + normalized_vpd
 
 
-def get_allocation_bases(plant_type: str) -> tuple[float, float, float]:
-    """
-    Get base allocation percentages for a plant type.
-
-    Parameters
-    ----------
-    plant_type : str
-        Type of plant ('tree', 'grass', 'crop', or 'shrub').
-
-    Returns
-    -------
-    tuple[float, float, float]
-        Base allocation percentages for (leaf, stem, root).
-
-    Raises
-    ------
-    ValueError
-        If plant type is not supported.
-    """
-    pt = plant_type.lower()
-    if pt == "tree":
-        return 0.05, 0.65, 0.30
-    elif pt == "grass":
-        return 0.40, 0.10, 0.50
-    elif pt == "shrub":
-        return 0.10, 0.40, 0.50
-    elif pt == "crop":
-        return 0.25, 0.50, 0.25
-    else:
-        raise ValueError(f"Unsupported plant type: {plant_type}")
-
-
 def compute_allocation_percentages(
     temperature: NDArray,
     day_of_year: NDArray,
