@@ -130,7 +130,7 @@ def compute_allocation_percentages(
     base_leaf: float,
     base_stem: float,
     base_root: float,
-) -> dict[str, NDArray]:
+) -> tuple[NDArray, NDArray, NDArray]:
     """
     Compute dynamic allocation percentages based on environmental factors.
 
@@ -157,8 +157,8 @@ def compute_allocation_percentages(
 
     Returns
     -------
-    dict[str, NDArray]
-        Dictionary with allocation percentages for 'leaf', 'stem', 'root'.
+    tuple[NDArray, NDArray, NDArray]
+        Tuple with allocation percentages for 'leaf', 'stem', 'root'.
     """
     seasonality_mod = np.sin(2 * np.pi * day_of_year / 365.0)
     temp_mod = (temperature - 20) / 100
@@ -188,11 +188,11 @@ def compute_allocation_percentages(
     total_percentage = final_leaf + final_stem + final_root
     total_percentage = np.maximum(total_percentage, 1e-10)
 
-    return {
-        "leaf": final_leaf / total_percentage,
-        "stem": final_stem / total_percentage,
-        "root": final_root / total_percentage,
-    }
+    return (
+        final_leaf / total_percentage,
+        final_stem / total_percentage,
+        final_root / total_percentage,
+    )
 
 
 def solve_pool_recurrence(initial_pool: float, a: NDArray, b: NDArray) -> NDArray:

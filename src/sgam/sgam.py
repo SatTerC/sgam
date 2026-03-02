@@ -84,6 +84,7 @@ class SgamComponent:
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
+        *,
         leaf_turnover_rate: float | None = None,
         stem_turnover_rate: float | None = None,
         root_turnover_rate: float | None = None,
@@ -130,7 +131,7 @@ class SgamComponent:
         )
         self.timestep = timestep
 
-    def __call__(
+    def forward(
         self,
         temperature: NDArray[np.float64],
         vpd: NDArray[np.float64],
@@ -142,7 +143,7 @@ class SgamComponent:
         lue: NDArray[np.float64],
     ) -> dict[str, NDArray]:
         """
-        Run the SGAM component.
+        Compute growth and allocation.
 
         Parameters
         ----------
@@ -175,61 +176,6 @@ class SgamComponent:
             - 'cue': Carbon use efficiency timeseries.
             - 'disturbance': Carbon loss due to disturbance/harvest.
         """
-        outputs = self._run_sgam(
-            soil_moisture=soil_moisture,
-            gpp=gpp,
-            iwue=iwue,
-            lue=lue,
-            temperature=temperature,
-            vpd=vpd,
-            lai_obs=lai_obs,
-            day_of_year=day_of_year,
-            timestep=self.timestep,
-        )
-
-        return outputs
-
-    def _run_sgam(
-        self,
-        soil_moisture: NDArray,
-        gpp: NDArray,
-        iwue: NDArray,
-        lue: NDArray,
-        temperature: NDArray,
-        vpd: NDArray,
-        lai_obs: NDArray,
-        day_of_year: NDArray,
-        timestep: float = 1.0,
-    ) -> dict[str, NDArray]:
-        """
-        Run the SGAM model for a single year of data.
-
-        Parameters
-        ----------
-        soil_moisture : NDArray
-            Soil moisture values.
-        gpp : NDArray
-            Gross primary productivity values.
-        iwue : NDArray
-            Intrinsic water use efficiency values.
-        lue : NDArray
-            Light use efficiency values.
-        temperature : NDArray
-            Temperature values (degC).
-        vpd : NDArray
-            Vapor pressure deficit values (Pa).
-        lai_obs : NDArray
-            Observed leaf area index values.
-        day_of_year : NDArray
-            Day of year values.
-        timestep : float
-            Timestep in days.
-
-        Returns
-        -------
-        dict[str, NDArray]
-            Dictionary containing pool sizes and fluxes.
-        """
         n_timesteps = len(gpp)
 
         pft_params = PFT_PARAMS[self.plant_type]
@@ -242,7 +188,11 @@ class SgamComponent:
         moisture_threshold = np.percentile(soil_moisture, 25)
         vpd_max = np.percentile(vpd, 75)
 
-        allocation = compute_allocation_percentages(
+        (
+            leaf_allocation_percentage,
+            stem_allocation_percentage,
+            root_allocation_percentage,
+        ) = compute_allocation_percentages(
             temperature,
             day_of_year,
             soil_moisture,
@@ -254,21 +204,17 @@ class SgamComponent:
             pft_params.root_base_allocation,
         )
 
-        leaf_allocation_percentage = allocation["leaf"]
-        stem_allocation_percentage = allocation["stem"]
-        root_allocation_percentage = allocation["root"]
-
-        allocated_gpp_leaf = gpp * leaf_allocation_percentage * timestep
-        allocated_gpp_stem = gpp * stem_allocation_percentage * timestep
-        allocated_gpp_root = gpp * root_allocation_percentage * timestep
+        allocated_gpp_leaf = gpp * leaf_allocation_percentage * self.timestep
+        allocated_gpp_stem = gpp * stem_allocation_percentage * self.timestep
+        allocated_gpp_root = gpp * root_allocation_percentage * self.timestep
 
         leaf_respiration = allocated_gpp_leaf * (1 - cue)
         stem_respiration = allocated_gpp_stem * (1 - cue)
         root_respiration = allocated_gpp_root * (1 - cue)
 
-        leaf_turnover_factor = 1 - (1 - self.leaf_turnover_rate) ** timestep
-        stem_turnover_factor = 1 - (1 - self.stem_turnover_rate) ** timestep
-        root_turnover_factor = 1 - (1 - self.root_turnover_rate) ** timestep
+        leaf_turnover_factor = 1 - (1 - self.leaf_turnover_rate) ** self.timestep
+        stem_turnover_factor = 1 - (1 - self.stem_turnover_rate) ** self.timestep
+        root_turnover_factor = 1 - (1 - self.root_turnover_rate) ** self.timestep
 
         litter_cue_modifier = 2 - cue
 
@@ -329,13 +275,13 @@ class SgamComponent:
             litter_cue_epoch = litter_cue_modifier[epoch_slice]
 
             retention_factor_leaf = (
-                1 - leaf_turnover_factor * litter_cue_epoch / timestep
+                1 - leaf_turnover_factor * litter_cue_epoch / self.timestep
             )
             retention_factor_stem = (
-                1 - stem_turnover_factor * litter_cue_epoch / timestep
+                1 - stem_turnover_factor * litter_cue_epoch / self.timestep
             )
             retention_factor_root = (
-                1 - root_turnover_factor * litter_cue_epoch / timestep
+                1 - root_turnover_factor * litter_cue_epoch / self.timestep
             )
 
             net_allocation_leaf = (
@@ -374,14 +320,23 @@ class SgamComponent:
             pool_before_root[1:] = root[epoch_slice][:-1]
 
             litter_to_soil[epoch_slice] = (
-                pool_before_leaf * leaf_turnover_factor / timestep * litter_cue_epoch
-                + pool_before_stem * stem_turnover_factor / timestep * litter_cue_epoch
-                + pool_before_root * root_turnover_factor / timestep * litter_cue_epoch
+                pool_before_leaf
+                * leaf_turnover_factor
+                / self.timestep
+                * litter_cue_epoch
+                + pool_before_stem
+                * stem_turnover_factor
+                / self.timestep
+                * litter_cue_epoch
+                + pool_before_root
+                * root_turnover_factor
+                / self.timestep
+                * litter_cue_epoch
             )
 
             leaf_area_index[epoch_slice] = leaf[epoch_slice] / self.leaf_carbon_area
             npp_out[epoch_slice] = (
-                gpp[epoch_slice] * timestep
+                gpp[epoch_slice] * self.timestep
                 - leaf_respiration[epoch_slice]
                 - stem_respiration[epoch_slice]
                 - root_respiration[epoch_slice]
@@ -424,3 +379,26 @@ class SgamComponent:
             "cue": cue,
             "disturbance": disturbance,
         }
+
+    def __call__(
+        self,
+        temperature: NDArray[np.float64],
+        vpd: NDArray[np.float64],
+        lai_obs: NDArray[np.float64],
+        day_of_year: NDArray[np.float64],
+        soil_moisture: NDArray[np.float64],
+        gpp: NDArray[np.float64],
+        iwue: NDArray[np.float64],
+        lue: NDArray[np.float64],
+    ) -> dict[str, NDArray]:
+        """Alias for `forward`."""
+        return self.forward(
+            soil_moisture=soil_moisture,
+            gpp=gpp,
+            iwue=iwue,
+            lue=lue,
+            temperature=temperature,
+            vpd=vpd,
+            lai_obs=lai_obs,
+            day_of_year=day_of_year,
+        )
