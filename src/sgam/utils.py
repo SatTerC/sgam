@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-def _rescale_to_unit_interval(x: NDArray) -> NDArray:
+def rescale_to_unit_interval(x: NDArray) -> NDArray:
     """
     Normalize array to [0, 1] range using min-max normalization.
 
@@ -31,178 +31,33 @@ def _rescale_to_unit_interval(x: NDArray) -> NDArray:
         return np.zeros_like(x)
 
 
-def compute_cue(lue: NDArray, iwue: NDArray) -> NDArray:
-    """
-    Compute carbon use efficiency (CUE) from light use efficiency and
-    intrinsic water use efficiency.
-
-    Parameters
-    ----------
-    lue : NDArray
-        Light use efficiency values.
-    iwue : NDArray
-        Intrinsic water use efficiency values.
-
-    Returns
-    -------
-    NDArray
-        Carbon use efficiency values.
-    """
-    lue_norm = _rescale_to_unit_interval(lue)
-    iwue_norm = _rescale_to_unit_interval(iwue)
-    iwue_norm_inv = 1 - iwue_norm
-    cue_raw = 0.5 * (lue_norm + iwue_norm_inv)
-    return 0.2 + cue_raw * (0.9 - 0.2)
-
-
-def compute_growing_season(temperature: NDArray, threshold: float) -> NDArray:
-    """
-    Compute boolean mask for growing season based on temperature threshold.
-
-    Parameters
-    ----------
-    temperature : NDArray
-        Temperature values (degC).
-    threshold : float
-        Minimum temperature for growing season (degC).
-
-    Returns
-    -------
-    NDArray
-        Boolean array indicating growing season.
-    """
-    return temperature > threshold
-
-
-def compute_relative_changes(values: NDArray) -> NDArray:
+def compute_relative_changes(x: NDArray) -> NDArray:
     """
     Compute relative changes between consecutive timesteps.
 
     Parameters
     ----------
-    values : NDArray
-        Input values.
+    x : NDArray
+        Input array.
 
     Returns
     -------
     NDArray
         Relative changes, with first element as 0.
     """
-    result = np.zeros_like(values)
-    result[1:] = (values[1:] - values[:-1]) / np.maximum(values[:-1], 1e-6)
-    return result
+    Δx = np.zeros_like(x)
+    Δx[1:] = (x[1:] - x[:-1]) / np.maximum(x[:-1], 1e-6)
+    return Δx
 
 
-def compute_drought_modifier(
-    soil_moisture: NDArray, vpd: NDArray, moisture_threshold: float, vpd_max: float
-) -> NDArray:
+def solve_recurrence(initial_value: float, a: NDArray, b: NDArray) -> NDArray:
     """
-    Compute drought modifier based on soil moisture and VPD.
-
-    Parameters
-    ----------
-    soil_moisture : NDArray
-        Soil moisture values.
-    vpd : NDArray
-        Vapor pressure deficit values (Pa).
-    moisture_threshold : float
-        Threshold for soil moisture stress.
-    vpd_max : float
-        Maximum VPD value.
-
-    Returns
-    -------
-    NDArray
-        Drought modifier values.
-    """
-    normalized_moisture = np.minimum(soil_moisture / moisture_threshold, 1.0)
-    normalized_vpd = np.minimum(vpd / vpd_max, 1.0)
-    return (1 - normalized_moisture) + normalized_vpd
-
-
-def compute_allocation_percentages(
-    temperature: NDArray,
-    day_of_year: NDArray,
-    soil_moisture: NDArray,
-    vpd: NDArray,
-    moisture_threshold: float,
-    vpd_max: float,
-    base_leaf: float,
-    base_stem: float,
-    base_root: float,
-) -> tuple[NDArray, NDArray, NDArray]:
-    """
-    Compute dynamic allocation percentages based on environmental factors.
-
-    Parameters
-    ----------
-    temperature : NDArray
-        Temperature values (degC).
-    day_of_year : NDArray
-        Day of year values.
-    soil_moisture : NDArray
-        Soil moisture values.
-    vpd : NDArray
-        Vapor pressure deficit values (Pa).
-    moisture_threshold : float
-        Threshold for soil moisture stress.
-    vpd_max : float
-        Maximum VPD value.
-    base_leaf : float
-        Base allocation fraction for leaf.
-    base_stem : float
-        Base allocation fraction for stem.
-    base_root : float
-        Base allocation fraction for root.
-
-    Returns
-    -------
-    tuple[NDArray, NDArray, NDArray]
-        Tuple with allocation percentages for 'leaf', 'stem', 'root'.
-    """
-    seasonality_mod = np.sin(2 * np.pi * day_of_year / 365.0)
-    temp_mod = (temperature - 20) / 100
-
-    dynamic_leaf = np.maximum(0, base_leaf + 0.15 * seasonality_mod + 0.1 * temp_mod)
-    dynamic_root = np.maximum(0, base_root - 0.15 * seasonality_mod - 0.05 * temp_mod)
-    dynamic_stem = np.maximum(0, base_stem - 0.05 * temp_mod)
-
-    total_dynamic = dynamic_leaf + dynamic_stem + dynamic_root
-    total_dynamic = np.maximum(total_dynamic, 1e-10)
-
-    dynamic_leaf = dynamic_leaf / total_dynamic
-    dynamic_stem = dynamic_stem / total_dynamic
-    dynamic_root = dynamic_root / total_dynamic
-
-    drought_modifier = compute_drought_modifier(
-        soil_moisture, vpd, moisture_threshold, vpd_max
-    )
-
-    root_adjustment = drought_modifier * 0.1
-    leaf_stem_adjustment = -drought_modifier * 0.1
-
-    final_root = np.maximum(0, dynamic_root + root_adjustment)
-    final_leaf = np.maximum(0, dynamic_leaf + leaf_stem_adjustment * 0.7)
-    final_stem = np.maximum(0, dynamic_stem + leaf_stem_adjustment * 0.3)
-
-    total_percentage = final_leaf + final_stem + final_root
-    total_percentage = np.maximum(total_percentage, 1e-10)
-
-    return (
-        final_leaf / total_percentage,
-        final_stem / total_percentage,
-        final_root / total_percentage,
-    )
-
-
-def solve_pool_recurrence(initial_pool: float, a: NDArray, b: NDArray) -> NDArray:
-    """
-    Solve pool recurrence: pool[i+1] = a[i] * pool[i] + b[i]
+    Solve first-order linear recurrence: x[i+1] = a[i] * x[i] + b[i].
 
     The recurrence expands to:
-    pool[i] = pool[0] * prod(a[0:i-1]) + sum(b[j] * prod(a[j+1:i]) for j in range(i))
+    x[i] = x[0] * prod(a[0:i-1]) + sum(b[j] * prod(a[j+1:i]) for j in range(i))
 
-    for i = 1, 2, ..., m-1, where pool[0] = initial_pool.
+    for i = 1, 2, ..., m-1, where x[0] = initial_value.
 
     This can be computed using cumulative products. We use the identity:
     sum(b[j] * prod(a[j+1:i]) for j in range(i))
@@ -212,18 +67,17 @@ def solve_pool_recurrence(initial_pool: float, a: NDArray, b: NDArray) -> NDArra
 
     Parameters
     ----------
-    initial_pool : float
-        Initial pool value at start of epoch.
+    initial_value : float
+        Initial value at start of sequence.
     a : NDArray
-        Coefficients where pool[i+1] = a[i] * pool[i] + b[i].
-        Computed as: a = 1 - turnover_factor * litter_cue_modifier / timestep.
+        Coefficients where x[i+1] = a[i] * x[i] + b[i].
     b : NDArray
-        Net flux (allocated - respiration).
+        Additive terms.
 
     Returns
     -------
     NDArray
-        Pool values for each timestep in the epoch (length m).
+        Values for each timestep (length m).
     """
     m = len(a)
 
@@ -241,43 +95,46 @@ def solve_pool_recurrence(initial_pool: float, a: NDArray, b: NDArray) -> NDArra
 
     weighted_sum = np.sum(contributions, axis=1)
 
-    pools = initial_pool * cumprod_a[1:] + weighted_sum
+    pools = initial_value * cumprod_a[1:] + weighted_sum
 
     return pools
 
 
-def find_epoch_boundaries(disturbance_mask: NDArray) -> list[tuple[int, int]]:
+def find_segments(mask: NDArray) -> list[tuple[int, int]]:
     """
-    Find start and end indices of non-disturbance epochs.
+    Find start and end indices of contiguous segments where mask is False.
 
     Parameters
     ----------
-    disturbance_mask : NDArray
-        Boolean array indicating disturbance events.
+    mask : NDArray
+        Boolean array. Segments are defined as regions where mask is False.
 
     Returns
     -------
     list[tuple[int, int]]
-        List of (start, end) tuples for each epoch.
+        List of (start, end) tuples for each segment.
     """
-    n_timesteps = len(disturbance_mask)
-    epochs = []
+    n_timesteps = len(mask)
+    segments = []
 
-    disturbance_indices = np.where(disturbance_mask)[0]
+    true_indices = np.where(mask)[0]
 
-    if len(disturbance_indices) == 0:
+    if len(true_indices) == 0:
         return [(0, n_timesteps)]
 
-    if disturbance_indices[0] > 0:
-        epochs.append((0, disturbance_indices[0]))
+    # Segment from start (index 0) to first True value
+    if true_indices[0] > 0:
+        segments.append((0, true_indices[0]))
 
-    for i in range(len(disturbance_indices) - 1):
-        start = disturbance_indices[i] + 1
-        end = disturbance_indices[i + 1]
+    # Segments between consecutive True values
+    for i in range(len(true_indices) - 1):
+        start = true_indices[i] + 1
+        end = true_indices[i + 1]
         if start < end:
-            epochs.append((start, end))
+            segments.append((start, end))
 
-    if disturbance_indices[-1] < n_timesteps - 1:
-        epochs.append((disturbance_indices[-1] + 1, n_timesteps))
+    # Segment from last True value to end
+    if true_indices[-1] < n_timesteps - 1:
+        segments.append((true_indices[-1] + 1, n_timesteps))
 
-    return epochs
+    return segments

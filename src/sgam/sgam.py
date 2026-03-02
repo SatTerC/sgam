@@ -12,13 +12,10 @@ from numpy.typing import NDArray
 
 from .pft import PlantFunctionalType, PFT_PARAMS
 from .utils import (
-    compute_cue,
-    compute_growing_season,
+    rescale_to_unit_interval,
     compute_relative_changes,
-    compute_drought_modifier,
-    compute_allocation_percentages,
-    solve_pool_recurrence,
-    find_epoch_boundaries,
+    solve_recurrence,
+    find_segments,
 )
 
 
@@ -119,6 +116,138 @@ class SgamComponent:
         )
         self.timestep = timestep
 
+    def compute_cue(self, lue: NDArray, iwue: NDArray) -> NDArray:
+        """
+        Compute carbon use efficiency (CUE) from light use efficiency and
+        intrinsic water use efficiency.
+
+        Parameters
+        ----------
+        lue : NDArray
+            Light use efficiency values.
+        iwue : NDArray
+            Intrinsic water use efficiency values.
+
+        Returns
+        -------
+        NDArray
+            Carbon use efficiency values.
+        """
+        lue_norm = rescale_to_unit_interval(lue)
+        iwue_norm = rescale_to_unit_interval(iwue)
+        iwue_norm_inv = 1 - iwue_norm
+        cue_raw = 0.5 * (lue_norm + iwue_norm_inv)
+        return 0.2 + cue_raw * (0.9 - 0.2)
+
+    def compute_drought_modifier(
+        self,
+        soil_moisture: NDArray,
+        vpd: NDArray,
+        moisture_threshold: float,
+        vpd_max: float,
+    ) -> NDArray:
+        """
+        Compute drought modifier based on soil moisture and VPD.
+
+        Parameters
+        ----------
+        soil_moisture : NDArray
+            Soil moisture values.
+        vpd : NDArray
+            Vapor pressure deficit values (Pa).
+        moisture_threshold : float
+            Threshold for soil moisture stress.
+        vpd_max : float
+            Maximum VPD value.
+
+        Returns
+        -------
+        NDArray
+            Drought modifier values.
+        """
+        normalized_moisture = np.minimum(soil_moisture / moisture_threshold, 1.0)
+        normalized_vpd = np.minimum(vpd / vpd_max, 1.0)
+        return (1 - normalized_moisture) + normalized_vpd
+
+    def compute_allocation_percentages(
+        self,
+        temperature: NDArray,
+        day_of_year: NDArray,
+        soil_moisture: NDArray,
+        vpd: NDArray,
+        moisture_threshold: float,
+        vpd_max: float,
+        base_leaf: float,
+        base_stem: float,
+        base_root: float,
+    ) -> tuple[NDArray, NDArray, NDArray]:
+        """
+        Compute dynamic allocation percentages based on environmental factors.
+
+        Parameters
+        ----------
+        temperature : NDArray
+            Temperature values (degC).
+        day_of_year : NDArray
+            Day of year values.
+        soil_moisture : NDArray
+            Soil moisture values.
+        vpd : NDArray
+            Vapor pressure deficit values (Pa).
+        moisture_threshold : float
+            Threshold for soil moisture stress.
+        vpd_max : float
+            Maximum VPD value.
+        base_leaf : float
+            Base allocation fraction for leaf.
+        base_stem : float
+            Base allocation fraction for stem.
+        base_root : float
+            Base allocation fraction for root.
+
+        Returns
+        -------
+        tuple[NDArray, NDArray, NDArray]
+            Tuple with allocation percentages for 'leaf', 'stem', 'root'.
+        """
+        seasonality_mod = np.sin(2 * np.pi * day_of_year / 365.0)
+        temp_mod = (temperature - 20) / 100
+
+        dynamic_leaf = np.maximum(
+            0, base_leaf + 0.15 * seasonality_mod + 0.1 * temp_mod
+        )
+        dynamic_root = np.maximum(
+            0, base_root - 0.15 * seasonality_mod - 0.05 * temp_mod
+        )
+        dynamic_stem = np.maximum(0, base_stem - 0.05 * temp_mod)
+
+        total_dynamic = dynamic_leaf + dynamic_stem + dynamic_root
+        total_dynamic = np.maximum(total_dynamic, 1e-10)
+
+        dynamic_leaf = dynamic_leaf / total_dynamic
+        dynamic_stem = dynamic_stem / total_dynamic
+        dynamic_root = dynamic_root / total_dynamic
+
+        drought_modifier = self.compute_drought_modifier(
+            soil_moisture, vpd, moisture_threshold, vpd_max
+        )
+
+        root_adjustment = drought_modifier * 0.1
+        leaf_stem_adjustment = -drought_modifier * 0.1
+
+        final_root = np.maximum(0, dynamic_root + root_adjustment)
+        final_leaf = np.maximum(0, dynamic_leaf + leaf_stem_adjustment * 0.7)
+        final_stem = np.maximum(0, dynamic_stem + leaf_stem_adjustment * 0.3)
+
+        total_percentage = final_leaf + final_stem + final_root
+        total_percentage = np.maximum(total_percentage, 1e-10)
+
+        return (
+            final_leaf / total_percentage,
+            final_stem / total_percentage,
+            final_root / total_percentage,
+        )
+
     def forward(
         self,
         temperature: NDArray[np.float64],
@@ -177,8 +306,7 @@ class SgamComponent:
 
         pft_params = PFT_PARAMS[self.plant_type]
 
-        cue = compute_cue(lue, iwue)
-        growing_season = compute_growing_season(temperature, self.growing_season_limit)
+        cue = self.compute_cue(lue, iwue)
         gpp_rel_change = compute_relative_changes(gpp)
         lai_rel_change = compute_relative_changes(lai_obs)
 
@@ -189,7 +317,7 @@ class SgamComponent:
             leaf_allocation_percentage,
             stem_pool_size_allocation_percentage,
             root_pool_size_allocation_percentage,
-        ) = compute_allocation_percentages(
+        ) = self.compute_allocation_percentages(
             temperature,
             day_of_year,
             soil_moisture,
@@ -225,8 +353,12 @@ class SgamComponent:
 
         litter_cue_modifier = 2 - cue
 
+        # Disturbance registered when:
+        # (a) within growing season: temperature above threshold
+        # (b) single-day drop in GPP exceeds threshold
+        # (c) single-day drop in LAI exceeds threshold
         disturbance_mask = (
-            growing_season
+            (temperature > self.growing_season_limit)
             & (gpp_rel_change < -self.disturbance_limit)
             & (lai_rel_change < -self.disturbance_limit)
         )
@@ -235,7 +367,7 @@ class SgamComponent:
             np.maximum(np.abs(gpp_rel_change), np.abs(lai_rel_change)), 1.0
         )
 
-        epochs = find_epoch_boundaries(disturbance_mask)
+        epochs = find_segments(disturbance_mask)
 
         leaf_pool_size = np.zeros(n_timesteps)
         stem_pool_size = np.zeros(n_timesteps)
@@ -308,17 +440,17 @@ class SgamComponent:
                 - root_pool_size_respiration[epoch_slice]
             )
 
-            leaf_pool_size[epoch_slice] = solve_pool_recurrence(
+            leaf_pool_size[epoch_slice] = solve_recurrence(
                 current_leaf_pool_size,
                 retention_factor_leaf_pool_size,
                 net_allocation_leaf_pool_size,
             )
-            stem_pool_size[epoch_slice] = solve_pool_recurrence(
+            stem_pool_size[epoch_slice] = solve_recurrence(
                 current_stem_pool_size,
                 retention_factor_stem_pool_size,
                 net_allocation_stem_pool_size,
             )
-            root_pool_size[epoch_slice] = solve_pool_recurrence(
+            root_pool_size[epoch_slice] = solve_recurrence(
                 current_root_pool_size,
                 retention_factor_root_pool_size,
                 net_allocation_root_pool_size,
