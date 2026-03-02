@@ -104,6 +104,10 @@ def find_segments(mask: NDArray) -> list[tuple[int, int]]:
     """
     Find start and end indices of contiguous segments where mask is False.
 
+    Each segment is extended by 1 to include the following True index (if any),
+    allowing pool values to be computed on disturbance days before the disturbance
+    loss is applied in a subsequent step.
+
     Parameters
     ----------
     mask : NDArray
@@ -122,18 +126,18 @@ def find_segments(mask: NDArray) -> list[tuple[int, int]]:
     if len(true_indices) == 0:
         return [(0, n_timesteps)]
 
-    # Segment from start (index 0) to first True value
+    # Segment from start (index 0) to first True value (extended by 1)
     if true_indices[0] > 0:
-        segments.append((0, true_indices[0]))
+        segments.append((0, true_indices[0] + 1))
 
-    # Segments between consecutive True values
+    # Segments between consecutive True values (each extended by 1)
     for i in range(len(true_indices) - 1):
         start = true_indices[i] + 1
-        end = true_indices[i + 1]
+        end = true_indices[i + 1] + 1  # extend to include the True index
         if start < end:
             segments.append((start, end))
 
-    # Segment from last True value to end
+    # Segment from last True value to end (extended by 1)
     if true_indices[-1] < n_timesteps - 1:
         segments.append((true_indices[-1] + 1, n_timesteps))
 
