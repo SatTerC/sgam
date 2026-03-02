@@ -2,7 +2,7 @@
 SGAM (Simplified Growth/GPP Allocation Model) component.
 
 This module provides the SgamComponent class, which simulates the allocation
-of gross primary productivity (GPP) to plant carbon pools (leaf, stem, root)
+of gross primary productivity (GPP) to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size)
 across different plant types (tree, grass, crop, shrub), including turnover,
 respiration, and disturbance events.
 """
@@ -25,7 +25,7 @@ from .utils import (
 class SgamComponent:
     """
     The Simplified Growth/GPP Allocation Model (SGAM) simulates the allocation of gross primary productivity (GPP)
-    to plant carbon pools (leaf, stem, root) for 4 plant types (tree, grass, crop, shrub) over time,
+    to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size) for 4 plant types (tree, grass, crop, shrub) over time,
     based on environmental drivers and physiological parameters.
     It accounts for dynamic allocation, turnover, respiration, disturbance/harvest events, and outputs pool sizes and fluxes.
 
@@ -33,18 +33,18 @@ class SgamComponent:
     ----------
         plant_type : PlantFunctionalType
             Type of plant (tree, grass, crop, or shrub).
-        leaf_pool_init: float
-            Initial leaf carbon pool size.
-        stem_pool_init: float
-            Initial stem carbon pool size.
-        root_pool_init: float
-            Initial root carbon pool size.
+        leaf_pool_size_pool_init: float
+            Initial leaf_pool_size carbon pool size.
+        stem_pool_size_pool_init: float
+            Initial stem_pool_size carbon pool size.
+        root_pool_size_pool_init: float
+            Initial root_pool_size carbon pool size.
         leaf_turnover_rate : float | None, optional
-            Daily turnover rate for leaf. Uses PFT default if None.
+            Daily turnover rate for leaf_pool_size. Uses PFT default if None.
         stem_turnover_rate : float | None, optional
-            Daily turnover rate for stem. Uses PFT default if None.
+            Daily turnover rate for stem_pool_size. Uses PFT default if None.
         root_turnover_rate : float | None, optional
-            Daily turnover rate for root. Uses PFT default if None.
+            Daily turnover rate for root_pool_size. Uses PFT default if None.
         leaf_carbon_area : float | None, optional
             Leaf carbon area conversion factor. Uses PFT default if None.
         disturbance_limit : float | None, optional
@@ -58,7 +58,7 @@ class SgamComponent:
     -------
     tuple[dict[str, NDArray], np.ndarray]
         Tuple of (output dict, dates array) with output dict containing:
-        - 'leaf', 'stem', 'root': Carbon pool sizes.
+        - 'leaf_pool_size', 'stem_pool_size', 'root_pool_size': Carbon pool sizes.
         - 'litter_to_soil': Daily litter carbon to soil.
         - 'leaf_respiration_loss', 'stem_respiration_loss', 'root_respiration_loss': Daily respiration losses.
         - 'leaf_area_index': Simulated LAI.
@@ -81,9 +81,9 @@ class SgamComponent:
     def __init__(
         self,
         plant_type: PlantFunctionalType,
-        leaf_pool_init: float,
-        stem_pool_init: float,
-        root_pool_init: float,
+        leaf_pool_size_pool_init: float,
+        stem_pool_size_pool_init: float,
+        root_pool_size_pool_init: float,
         *,
         leaf_turnover_rate: float | None = None,
         stem_turnover_rate: float | None = None,
@@ -96,9 +96,9 @@ class SgamComponent:
         pft_params = PFT_PARAMS[plant_type]
 
         self.plant_type = plant_type
-        self.leaf_pool_init = leaf_pool_init
-        self.stem_pool_init = stem_pool_init
-        self.root_pool_init = root_pool_init
+        self.leaf_pool_init = leaf_pool_size_pool_init
+        self.stem_pool_init = stem_pool_size_pool_init
+        self.root_pool_init = root_pool_size_pool_init
         self.leaf_turnover_rate = (
             leaf_turnover_rate
             if leaf_turnover_rate is not None
@@ -152,7 +152,7 @@ class SgamComponent:
         vpd : NDArray[np.float64]
             Vapor pressure deficit (Pascals). From model_inputs.
         lai_obs : NDArray[np.float64]
-            Observed leaf area index. From model_inputs.
+            Observed leaf_pool_size area index. From model_inputs.
         day_of_year : NDArray[np.float64]
             Day of year. From model_inputs.
         soil_moisture : NDArray[np.float64]
@@ -168,7 +168,7 @@ class SgamComponent:
         -------
         dict[str, NDArray]
             Output dict with keys:
-            - 'leaf', 'stem', 'root': Carbon pool sizes.
+            - 'leaf_pool_size', 'stem_pool_size', 'root_pool_size': Carbon pool sizes.
             - 'litter_to_soil': Daily litter carbon to soil.
             - 'leaf_respiration_loss', 'stem_respiration_loss', 'root_respiration_loss': Daily respiration losses.
             - 'leaf_area_index': Simulated LAI.
@@ -190,8 +190,8 @@ class SgamComponent:
 
         (
             leaf_allocation_percentage,
-            stem_allocation_percentage,
-            root_allocation_percentage,
+            stem_pool_size_allocation_percentage,
+            root_pool_size_allocation_percentage,
         ) = compute_allocation_percentages(
             temperature,
             day_of_year,
@@ -205,16 +205,26 @@ class SgamComponent:
         )
 
         allocated_gpp_leaf = gpp * leaf_allocation_percentage * self.timestep
-        allocated_gpp_stem = gpp * stem_allocation_percentage * self.timestep
-        allocated_gpp_root = gpp * root_allocation_percentage * self.timestep
+        allocated_gpp_stem_pool_size = (
+            gpp * stem_pool_size_allocation_percentage * self.timestep
+        )
+        allocated_gpp_root_pool_size = (
+            gpp * root_pool_size_allocation_percentage * self.timestep
+        )
 
         leaf_respiration = allocated_gpp_leaf * (1 - cue)
-        stem_respiration = allocated_gpp_stem * (1 - cue)
-        root_respiration = allocated_gpp_root * (1 - cue)
+        stem_pool_size_respiration = allocated_gpp_stem_pool_size * (1 - cue)
+        root_pool_size_respiration = allocated_gpp_root_pool_size * (1 - cue)
 
-        leaf_turnover_factor = 1 - (1 - self.leaf_turnover_rate) ** self.timestep
-        stem_turnover_factor = 1 - (1 - self.stem_turnover_rate) ** self.timestep
-        root_turnover_factor = 1 - (1 - self.root_turnover_rate) ** self.timestep
+        leaf_pool_size_turnover_factor = (
+            1 - (1 - self.leaf_turnover_rate) ** self.timestep
+        )
+        stem_pool_size_turnover_factor = (
+            1 - (1 - self.stem_turnover_rate) ** self.timestep
+        )
+        root_pool_size_turnover_factor = (
+            1 - (1 - self.root_turnover_rate) ** self.timestep
+        )
 
         litter_cue_modifier = 2 - cue
 
@@ -230,9 +240,9 @@ class SgamComponent:
 
         epochs = find_epoch_boundaries(disturbance_mask)
 
-        leaf = np.zeros(n_timesteps)
-        stem = np.zeros(n_timesteps)
-        root = np.zeros(n_timesteps)
+        leaf_pool_size = np.zeros(n_timesteps)
+        stem_pool_size = np.zeros(n_timesteps)
+        root_pool_size = np.zeros(n_timesteps)
         litter_to_soil = np.zeros(n_timesteps)
         leaf_respiration_loss = np.zeros(n_timesteps)
         stem_respiration_loss = np.zeros(n_timesteps)
@@ -248,22 +258,27 @@ class SgamComponent:
             epoch_length = epoch_end - epoch_start
 
             if epoch_start == 0:
-                current_leaf = self.leaf_pool_init
-                current_stem = self.stem_pool_init
-                current_root = self.root_pool_init
+                current_leaf_pool_size = self.leaf_pool_init
+                current_stem_pool_size = self.stem_pool_init
+                current_root_pool_size = self.root_pool_init
             else:
-                current_leaf = leaf[epoch_start - 1]
-                current_stem = stem[epoch_start - 1]
-                current_root = root[epoch_start - 1]
+                current_leaf_pool_size = leaf_pool_size[epoch_start - 1]
+                current_stem_pool_size = stem_pool_size[epoch_start - 1]
+                current_root_pool_size = root_pool_size[epoch_start - 1]
 
             if (
                 is_crop
                 and gpp[epoch_start] <= 1.0
-                and (current_leaf + current_stem + current_root) == 0.0
+                and (
+                    current_leaf_pool_size
+                    + current_stem_pool_size
+                    + current_root_pool_size
+                )
+                == 0.0
             ):
-                leaf[epoch_slice] = 0.0
-                stem[epoch_slice] = 0.0
-                root[epoch_slice] = 0.0
+                leaf_pool_size[epoch_slice] = 0.0
+                stem_pool_size[epoch_slice] = 0.0
+                root_pool_size[epoch_slice] = 0.0
                 litter_to_soil[epoch_slice] = 0.0
                 leaf_respiration_loss[epoch_slice] = 0.0
                 stem_respiration_loss[epoch_slice] = 0.0
@@ -274,102 +289,112 @@ class SgamComponent:
 
             litter_cue_epoch = litter_cue_modifier[epoch_slice]
 
-            retention_factor_leaf = (
-                1 - leaf_turnover_factor * litter_cue_epoch / self.timestep
+            retention_factor_leaf_pool_size = (
+                1 - leaf_pool_size_turnover_factor * litter_cue_epoch / self.timestep
             )
-            retention_factor_stem = (
-                1 - stem_turnover_factor * litter_cue_epoch / self.timestep
+            retention_factor_stem_pool_size = (
+                1 - stem_pool_size_turnover_factor * litter_cue_epoch / self.timestep
             )
-            retention_factor_root = (
-                1 - root_turnover_factor * litter_cue_epoch / self.timestep
+            retention_factor_root_pool_size = (
+                1 - root_pool_size_turnover_factor * litter_cue_epoch / self.timestep
             )
 
-            net_allocation_leaf = (
+            net_allocation_leaf_pool_size = (
                 allocated_gpp_leaf[epoch_slice] - leaf_respiration[epoch_slice]
             )
-            net_allocation_stem = (
-                allocated_gpp_stem[epoch_slice] - stem_respiration[epoch_slice]
+            net_allocation_stem_pool_size = (
+                allocated_gpp_stem_pool_size[epoch_slice]
+                - stem_pool_size_respiration[epoch_slice]
             )
-            net_allocation_root = (
-                allocated_gpp_root[epoch_slice] - root_respiration[epoch_slice]
-            )
-
-            leaf[epoch_slice] = solve_pool_recurrence(
-                current_leaf, retention_factor_leaf, net_allocation_leaf
-            )
-            stem[epoch_slice] = solve_pool_recurrence(
-                current_stem, retention_factor_stem, net_allocation_stem
-            )
-            root[epoch_slice] = solve_pool_recurrence(
-                current_root, retention_factor_root, net_allocation_root
+            net_allocation_root_pool_size = (
+                allocated_gpp_root_pool_size[epoch_slice]
+                - root_pool_size_respiration[epoch_slice]
             )
 
-            leaf[epoch_slice] = np.maximum(leaf[epoch_slice], 0.0)
-            stem[epoch_slice] = np.maximum(stem[epoch_slice], 0.0)
-            root[epoch_slice] = np.maximum(root[epoch_slice], 0.0)
+            leaf_pool_size[epoch_slice] = solve_pool_recurrence(
+                current_leaf_pool_size,
+                retention_factor_leaf_pool_size,
+                net_allocation_leaf_pool_size,
+            )
+            stem_pool_size[epoch_slice] = solve_pool_recurrence(
+                current_stem_pool_size,
+                retention_factor_stem_pool_size,
+                net_allocation_stem_pool_size,
+            )
+            root_pool_size[epoch_slice] = solve_pool_recurrence(
+                current_root_pool_size,
+                retention_factor_root_pool_size,
+                net_allocation_root_pool_size,
+            )
 
-            pool_before_leaf = np.empty(epoch_length)
-            pool_before_stem = np.empty(epoch_length)
-            pool_before_root = np.empty(epoch_length)
+            leaf_pool_size[epoch_slice] = np.maximum(leaf_pool_size[epoch_slice], 0.0)
+            stem_pool_size[epoch_slice] = np.maximum(stem_pool_size[epoch_slice], 0.0)
+            root_pool_size[epoch_slice] = np.maximum(root_pool_size[epoch_slice], 0.0)
 
-            pool_before_leaf[0] = current_leaf
-            pool_before_stem[0] = current_stem
-            pool_before_root[0] = current_root
-            pool_before_leaf[1:] = leaf[epoch_slice][:-1]
-            pool_before_stem[1:] = stem[epoch_slice][:-1]
-            pool_before_root[1:] = root[epoch_slice][:-1]
+            pool_before_leaf_pool_size = np.empty(epoch_length)
+            pool_before_stem_pool_size = np.empty(epoch_length)
+            pool_before_root_pool_size = np.empty(epoch_length)
+
+            pool_before_leaf_pool_size[0] = current_leaf_pool_size
+            pool_before_stem_pool_size[0] = current_stem_pool_size
+            pool_before_root_pool_size[0] = current_root_pool_size
+            pool_before_leaf_pool_size[1:] = leaf_pool_size[epoch_slice][:-1]
+            pool_before_stem_pool_size[1:] = stem_pool_size[epoch_slice][:-1]
+            pool_before_root_pool_size[1:] = root_pool_size[epoch_slice][:-1]
 
             litter_to_soil[epoch_slice] = (
-                pool_before_leaf
-                * leaf_turnover_factor
+                pool_before_leaf_pool_size
+                * leaf_pool_size_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
-                + pool_before_stem
-                * stem_turnover_factor
+                + pool_before_stem_pool_size
+                * stem_pool_size_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
-                + pool_before_root
-                * root_turnover_factor
+                + pool_before_root_pool_size
+                * root_pool_size_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
             )
 
-            leaf_area_index[epoch_slice] = leaf[epoch_slice] / self.leaf_carbon_area
+            leaf_area_index[epoch_slice] = (
+                leaf_pool_size[epoch_slice] / self.leaf_carbon_area
+            )
             npp_out[epoch_slice] = (
                 gpp[epoch_slice] * self.timestep
                 - leaf_respiration[epoch_slice]
-                - stem_respiration[epoch_slice]
-                - root_respiration[epoch_slice]
+                - stem_pool_size_respiration[epoch_slice]
+                - root_pool_size_respiration[epoch_slice]
             )
 
             leaf_respiration_loss[epoch_slice] = leaf_respiration[epoch_slice]
-            stem_respiration_loss[epoch_slice] = stem_respiration[epoch_slice]
-            root_respiration_loss[epoch_slice] = root_respiration[epoch_slice]
+            stem_respiration_loss[epoch_slice] = stem_pool_size_respiration[epoch_slice]
+            root_respiration_loss[epoch_slice] = root_pool_size_respiration[epoch_slice]
 
         disturbance_indices = np.where(disturbance_mask)[0]
 
         for i in disturbance_indices:
             if is_crop:
-                disturbance[i] = leaf[i]
-                total_pool = leaf[i] + stem[i] + root[i]
+                disturbance[i] = leaf_pool_size[i]
+                total_pool = leaf_pool_size[i] + stem_pool_size[i] + root_pool_size[i]
                 litter_to_soil[i] += total_pool
-                leaf[i] = 0.0
-                stem[i] = 0.0
-                root[i] = 0.0
+                leaf_pool_size[i] = 0.0
+                stem_pool_size[i] = 0.0
+                root_pool_size[i] = 0.0
             else:
-                disturbance[i] = leaf[i] * disturbance_fraction[i]
-                leaf[i] -= disturbance[i]
+                disturbance[i] = leaf_pool_size[i] * disturbance_fraction[i]
+                leaf_pool_size[i] -= disturbance[i]
 
             leaf_respiration_loss[i] = 0.0
             stem_respiration_loss[i] = 0.0
             root_respiration_loss[i] = 0.0
             npp_out[i] = 0.0
-            leaf_area_index[i] = leaf[i] / self.leaf_carbon_area
+            leaf_area_index[i] = leaf_pool_size[i] / self.leaf_carbon_area
 
         return {
-            "leaf": leaf,
-            "stem": stem,
-            "root": root,
+            "leaf_pool_size": leaf_pool_size,
+            "stem_pool_size": stem_pool_size,
+            "root_pool_size": root_pool_size,
             "litter_to_soil": litter_to_soil,
             "leaf_respiration_loss": leaf_respiration_loss,
             "stem_respiration_loss": stem_respiration_loss,
