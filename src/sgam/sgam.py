@@ -33,12 +33,6 @@ class SgamComponent:
     ----------
         plant_type : PlantFunctionalType
             Type of plant (tree, grass, crop, or shrub).
-        leaf_pool_size_pool_init: float
-            Initial leaf_pool_size carbon pool size.
-        stem_pool_size_pool_init: float
-            Initial stem_pool_size carbon pool size.
-        root_pool_size_pool_init: float
-            Initial root_pool_size carbon pool size.
         leaf_turnover_rate : float | None, optional
             Daily turnover rate for leaf_pool_size. Uses PFT default if None.
         stem_turnover_rate : float | None, optional
@@ -81,9 +75,6 @@ class SgamComponent:
     def __init__(
         self,
         plant_type: PlantFunctionalType,
-        leaf_pool_size_pool_init: float,
-        stem_pool_size_pool_init: float,
-        root_pool_size_pool_init: float,
         *,
         leaf_turnover_rate: float | None = None,
         stem_turnover_rate: float | None = None,
@@ -96,9 +87,6 @@ class SgamComponent:
         pft_params = PFT_PARAMS[plant_type]
 
         self.plant_type = plant_type
-        self.leaf_pool_init = leaf_pool_size_pool_init
-        self.stem_pool_init = stem_pool_size_pool_init
-        self.root_pool_init = root_pool_size_pool_init
         self.leaf_turnover_rate = (
             leaf_turnover_rate
             if leaf_turnover_rate is not None
@@ -141,6 +129,9 @@ class SgamComponent:
         gpp: NDArray[np.float64],
         iwue: NDArray[np.float64],
         lue: NDArray[np.float64],
+        leaf_pool_init: float,
+        stem_pool_init: float,
+        root_pool_init: float,
     ) -> dict[str, NDArray]:
         """
         Compute growth and allocation.
@@ -163,6 +154,12 @@ class SgamComponent:
             Intrinsic water use efficiency. From productivity_outputs.
         lue : NDArray[np.float64]
             Light use efficiency. From productivity_outputs.
+        leaf_pool_init : float
+            Initial leaf carbon pool size.
+        stem_pool_init : float
+            Initial stem carbon pool size.
+        root_pool_init : float
+            Initial root carbon pool size.
 
         Returns
         -------
@@ -258,9 +255,9 @@ class SgamComponent:
             epoch_length = epoch_end - epoch_start
 
             if epoch_start == 0:
-                current_leaf_pool_size = self.leaf_pool_init
-                current_stem_pool_size = self.stem_pool_init
-                current_root_pool_size = self.root_pool_init
+                current_leaf_pool_size = leaf_pool_init
+                current_stem_pool_size = stem_pool_init
+                current_root_pool_size = root_pool_init
             else:
                 current_leaf_pool_size = leaf_pool_size[epoch_start - 1]
                 current_stem_pool_size = stem_pool_size[epoch_start - 1]
@@ -415,6 +412,9 @@ class SgamComponent:
         gpp: NDArray[np.float64],
         iwue: NDArray[np.float64],
         lue: NDArray[np.float64],
+        leaf_pool_init: float,
+        stem_pool_init: float,
+        root_pool_init: float,
     ) -> dict[str, NDArray]:
         """Alias for `forward`."""
         return self.forward(
@@ -426,4 +426,7 @@ class SgamComponent:
             vpd=vpd,
             lai_obs=lai_obs,
             day_of_year=day_of_year,
+            leaf_pool_init=leaf_pool_init,
+            stem_pool_init=stem_pool_init,
+            root_pool_init=root_pool_init,
         )
