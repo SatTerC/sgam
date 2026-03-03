@@ -1,0 +1,3 @@
+# `sgam.pft`
+
+::: sgam.pft

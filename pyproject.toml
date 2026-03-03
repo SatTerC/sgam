@@ -23,6 +23,8 @@ sgam = "sgam:main"
 dev = [
     {include-group = "test"},
     {include-group = "docs"},
+    "ruff>=0.15.4",
+    "rust-just>=1.46.0",
 ]
 docs = [
     "mkdocstrings-python>=2.0.3",
@@ -30,5 +32,4 @@ docs = [
 ]
 test = [
     "pytest>=9.0.2",
-    "ruff>=0.15.4",
 ]

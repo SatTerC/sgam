@@ -1,0 +1,3 @@
+# `sgam.sgam`
+
+::: sgam.sgam
