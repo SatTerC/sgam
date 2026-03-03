@@ -400,9 +400,6 @@ class SgamComponent:
         npp_out = np.zeros(n_timesteps)
         disturbance = np.zeros(n_timesteps)
 
-        # Check if the plant type is CROP (special handling for annual crops with harvest events)
-        is_crop = self.plant_type is PlantFunctionalType.CROP
-
         # Get indices where disturbance events occur
         disturbance_indices = np.where(disturbance_mask)[0]
 
@@ -416,26 +413,6 @@ class SgamComponent:
         for epoch_start, epoch_end in epochs:
             epoch_slice = slice(epoch_start, epoch_end)
             epoch_length = epoch_end - epoch_start
-
-            # Handle crop emergence logic: if GPP is negligible and all pools are zero,
-            # the crop has not yet emerged or has been harvested - skip this epoch
-            if (
-                is_crop
-                and gpp[epoch_start] <= 1.0
-                and (leaf_pool_epoch_init + stem_pool_epoch_init + root_pool_epoch_init)
-                == 0.0
-            ):
-                # Set all outputs to zero for non-emerged/cropped period
-                leaf_pool_size[epoch_slice] = 0.0
-                stem_pool_size[epoch_slice] = 0.0
-                root_pool_size[epoch_slice] = 0.0
-                litter_to_soil[epoch_slice] = 0.0
-                leaf_respiration_loss[epoch_slice] = 0.0
-                stem_respiration_loss[epoch_slice] = 0.0
-                root_respiration_loss[epoch_slice] = 0.0
-                leaf_area_index[epoch_slice] = 0.0
-                npp_out[epoch_slice] = 0.0
-                continue
 
             # Extract the CUE modifier for this epoch (may vary over time)
             litter_cue_epoch = litter_cue_modifier[epoch_slice]
@@ -552,7 +529,7 @@ class SgamComponent:
             # Process disturbance events within the epoch
             # Applies different logic for crops (harvest) vs. other plant types (natural disturbance)
             for i in epoch_disturbance_indices:
-                if is_crop:
+                if self.plant_type is PlantFunctionalType.CROP:
                     # For crops: harvest event removes all leaf biomass
                     # Total biomass (including stem and root) becomes litter to soil
                     # This simulates combines removing aboveground but leaving residues
