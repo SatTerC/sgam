@@ -302,21 +302,34 @@ class SgamComponent:
             - 'cue': Carbon use efficiency timeseries.
             - 'disturbance': Carbon loss due to disturbance/harvest.
         """
+        # Determine number of simulation timesteps from GPP input array
         n_timesteps = len(gpp)
 
+        # Retrieve plant functional type (PFT) parameters for the current plant type
         pft_params = PFT_PARAMS[self.plant_type]
 
+        # Compute Carbon Use Efficiency (CUE) from light use efficiency (LUE) and intrinsic water use efficiency (IWUE)
+        # CUE represents the fraction of GPP that remains as Net Primary Productivity (NPP) after autotrophic respiration
         cue = self.compute_cue(lue, iwue)
+
+        # Compute relative day-to-day changes in GPP and observed LAI to detect disturbance events
+        # These are fractional changes (e.g., -0.3 means 30% decrease from previous day)
         gpp_rel_change = compute_relative_changes(gpp)
         lai_rel_change = compute_relative_changes(lai_obs)
 
+        # Calculate environmental stress thresholds from percentiles of input data
+        # 25th percentile of soil moisture serves as moisture stress threshold
         moisture_threshold = np.percentile(soil_moisture, 25)
+        # 75th percentile of VPD serves as maximum vapor pressure deficit threshold
         vpd_max = np.percentile(vpd, 75)
+        # NOTE: should these be configurable by the user??
 
+        # Compute dynamic carbon allocation fractions for each tissue type (leaf, stem, root)
+        # These percentages vary seasonally and in response to environmental conditions (temperature, moisture, VPD)
         (
             leaf_allocation_percentage,
-            stem_pool_size_allocation_percentage,
-            root_pool_size_allocation_percentage,
+            stem_allocation_percentage,
+            root_allocation_percentage,
         ) = self.compute_allocation_percentages(
             temperature,
             day_of_year,
@@ -329,46 +342,53 @@ class SgamComponent:
             pft_params.root_base_allocation,
         )
 
-        allocated_gpp_leaf = gpp * leaf_allocation_percentage * self.timestep
-        allocated_gpp_stem_pool_size = (
-            gpp * stem_pool_size_allocation_percentage * self.timestep
-        )
-        allocated_gpp_root_pool_size = (
-            gpp * root_pool_size_allocation_percentage * self.timestep
-        )
+        # Allocate GPP to each tissue pool based on computed percentages and timestep
+        # This represents the portion of gross primary productivity assigned to each carbon pool
+        leaf_allocated_gpp = gpp * leaf_allocation_percentage * self.timestep
+        stem_allocated_gpp = gpp * stem_allocation_percentage * self.timestep
+        root_allocated_gpp = gpp * root_allocation_percentage * self.timestep
 
-        leaf_respiration = allocated_gpp_leaf * (1 - cue)
-        stem_pool_size_respiration = allocated_gpp_stem_pool_size * (1 - cue)
-        root_pool_size_respiration = allocated_gpp_root_pool_size * (1 - cue)
+        # Calculate autotrophic respiration losses for each pool using CUE
+        # (1 - CUE) represents the respiration fraction; respiration uses oxygen and releases CO2
+        leaf_respiration = leaf_allocated_gpp * (1 - cue)
+        stem_respiration = stem_allocated_gpp * (1 - cue)
+        root_respiration = root_allocated_gpp * (1 - cue)
 
-        leaf_pool_size_turnover_factor = (
-            1 - (1 - self.leaf_turnover_rate) ** self.timestep
-        )
-        stem_pool_size_turnover_factor = (
-            1 - (1 - self.stem_turnover_rate) ** self.timestep
-        )
-        root_pool_size_turnover_factor = (
-            1 - (1 - self.root_turnover_rate) ** self.timestep
-        )
+        # Calculate turnover factors for each tissue pool using the exponential decay formula
+        # Turnover factor represents the fraction of tissue that dies/turns over per timestep
+        # Formula: 1 - (1 - rate)^timestep converts daily rate to effective per-timestep turnover
+        leaf_turnover_factor = 1 - (1 - self.leaf_turnover_rate) ** self.timestep
+        stem_turnover_factor = 1 - (1 - self.stem_turnover_rate) ** self.timestep
+        root_turnover_factor = 1 - (1 - self.root_turnover_rate) ** self.timestep
 
+        # Compute litter CUE modifier: higher when CUE is low (more carbon lost to respiration becomes litter)
+        # When CUE is high (0.9), modifier is 1.1; when CUE is low (0.2), modifier is 1.8
         litter_cue_modifier = 2 - cue
 
         # Disturbance registered when:
         # (a) within growing season: temperature above threshold
         # (b) single-day drop in GPP exceeds threshold
         # (c) single-day drop in LAI exceeds threshold
+        # Creates a boolean mask where True indicates a disturbance event
         disturbance_mask = (
             (temperature > self.growing_season_limit)
             & (gpp_rel_change < -self.disturbance_limit)
             & (lai_rel_change < -self.disturbance_limit)
         )
 
+        # Calculate disturbance severity as fraction of pool lost (capped at 100%)
+        # Uses the maximum of GPP or LAI relative decline to estimate biomass loss
         disturbance_fraction = np.minimum(
             np.maximum(np.abs(gpp_rel_change), np.abs(lai_rel_change)), 1.0
         )
 
+        # Identify continuous epochs (time segments) between disturbance events
+        # Each epoch is a period where the system operates without disturbance
+        # Returns list of (start_index, end_index) tuples for each epoch
         epochs = find_segments(disturbance_mask)
 
+        # Initialize output arrays for all state variables and fluxes
+        # All arrays sized to number of timesteps, initialized to zeros
         leaf_pool_size = np.zeros(n_timesteps)
         stem_pool_size = np.zeros(n_timesteps)
         root_pool_size = np.zeros(n_timesteps)
@@ -380,31 +400,32 @@ class SgamComponent:
         npp_out = np.zeros(n_timesteps)
         disturbance = np.zeros(n_timesteps)
 
+        # Check if the plant type is CROP (special handling for annual crops with harvest events)
         is_crop = self.plant_type is PlantFunctionalType.CROP
 
+        # Get indices where disturbance events occur
+        disturbance_indices = np.where(disturbance_mask)[0]
+
+        # Initialize epoch boundary pool values to initial conditions
+        # These are updated at the end of each epoch to carry state to the next epoch
+        leaf_pool_epoch_init = leaf_pool_init
+        stem_pool_epoch_init = stem_pool_init
+        root_pool_epoch_init = root_pool_init
+
+        # Process each epoch sequentially - an epoch is a period between disturbance events
         for epoch_start, epoch_end in epochs:
             epoch_slice = slice(epoch_start, epoch_end)
             epoch_length = epoch_end - epoch_start
 
-            if epoch_start == 0:
-                current_leaf_pool_size = leaf_pool_init
-                current_stem_pool_size = stem_pool_init
-                current_root_pool_size = root_pool_init
-            else:
-                current_leaf_pool_size = leaf_pool_size[epoch_start - 1]
-                current_stem_pool_size = stem_pool_size[epoch_start - 1]
-                current_root_pool_size = root_pool_size[epoch_start - 1]
-
+            # Handle crop emergence logic: if GPP is negligible and all pools are zero,
+            # the crop has not yet emerged or has been harvested - skip this epoch
             if (
                 is_crop
                 and gpp[epoch_start] <= 1.0
-                and (
-                    current_leaf_pool_size
-                    + current_stem_pool_size
-                    + current_root_pool_size
-                )
+                and (leaf_pool_epoch_init + stem_pool_epoch_init + root_pool_epoch_init)
                 == 0.0
             ):
+                # Set all outputs to zero for non-emerged/cropped period
                 leaf_pool_size[epoch_slice] = 0.0
                 stem_pool_size[epoch_slice] = 0.0
                 root_pool_size[epoch_slice] = 0.0
@@ -416,110 +437,152 @@ class SgamComponent:
                 npp_out[epoch_slice] = 0.0
                 continue
 
+            # Extract the CUE modifier for this epoch (may vary over time)
             litter_cue_epoch = litter_cue_modifier[epoch_slice]
 
-            retention_factor_leaf_pool_size = (
-                1 - leaf_pool_size_turnover_factor * litter_cue_epoch / self.timestep
+            # Calculate retention factors for each tissue pool
+            # Retention factor = 1 - (turnover_fraction * litter_cue_modifier / timestep)
+            # Higher turnover or lower CUE means less carbon is retained in the pool
+            leaf_retention_factor = (
+                1 - leaf_turnover_factor * litter_cue_epoch / self.timestep
             )
-            retention_factor_stem_pool_size = (
-                1 - stem_pool_size_turnover_factor * litter_cue_epoch / self.timestep
+            stem_retention_factor = (
+                1 - stem_turnover_factor * litter_cue_epoch / self.timestep
             )
-            retention_factor_root_pool_size = (
-                1 - root_pool_size_turnover_factor * litter_cue_epoch / self.timestep
-            )
-
-            net_allocation_leaf_pool_size = (
-                allocated_gpp_leaf[epoch_slice] - leaf_respiration[epoch_slice]
-            )
-            net_allocation_stem_pool_size = (
-                allocated_gpp_stem_pool_size[epoch_slice]
-                - stem_pool_size_respiration[epoch_slice]
-            )
-            net_allocation_root_pool_size = (
-                allocated_gpp_root_pool_size[epoch_slice]
-                - root_pool_size_respiration[epoch_slice]
+            root_retention_factor = (
+                1 - root_turnover_factor * litter_cue_epoch / self.timestep
             )
 
+            # Calculate net carbon allocation to each pool (GPP allocation minus respiration losses)
+            # This is the amount of carbon that actually gets added to each pool
+            leaf_net_allocation = (
+                leaf_allocated_gpp[epoch_slice] - leaf_respiration[epoch_slice]
+            )
+            stem_net_allocation = (
+                stem_allocated_gpp[epoch_slice] - stem_respiration[epoch_slice]
+            )
+            root_net_allocation = (
+                root_allocated_gpp[epoch_slice] - root_respiration[epoch_slice]
+            )
+
+            # Solve the recurrence relation for each pool over the epoch timestep
+            # Uses analytical solution: P(t) = P(0) * retention^t + sum(net_allocation * retention^(t-i))
+            # This models the exponential decay of pool size with ongoing carbon inputs
             leaf_pool_size[epoch_slice] = solve_recurrence(
-                current_leaf_pool_size,
-                retention_factor_leaf_pool_size,
-                net_allocation_leaf_pool_size,
+                leaf_pool_epoch_init,
+                leaf_retention_factor,
+                leaf_net_allocation,
             )
             stem_pool_size[epoch_slice] = solve_recurrence(
-                current_stem_pool_size,
-                retention_factor_stem_pool_size,
-                net_allocation_stem_pool_size,
+                stem_pool_epoch_init,
+                stem_retention_factor,
+                stem_net_allocation,
             )
             root_pool_size[epoch_slice] = solve_recurrence(
-                current_root_pool_size,
-                retention_factor_root_pool_size,
-                net_allocation_root_pool_size,
+                root_pool_epoch_init,
+                root_retention_factor,
+                root_net_allocation,
             )
 
+            # Ensure pools cannot go negative (numerical safety)
             leaf_pool_size[epoch_slice] = np.maximum(leaf_pool_size[epoch_slice], 0.0)
             stem_pool_size[epoch_slice] = np.maximum(stem_pool_size[epoch_slice], 0.0)
             root_pool_size[epoch_slice] = np.maximum(root_pool_size[epoch_slice], 0.0)
 
-            pool_before_leaf_pool_size = np.empty(epoch_length)
-            pool_before_stem_pool_size = np.empty(epoch_length)
-            pool_before_root_pool_size = np.empty(epoch_length)
+            # Store pool sizes from previous timestep for litter calculation
+            # This represents the biomass that turned over during each day
+            # Shifted array: first element is epoch init, rest are the pool values shifted by 1
+            leaf_pool_size_shifted = np.empty(epoch_length)
+            stem_pool_size_shifted = np.empty(epoch_length)
+            root_pool_size_shifted = np.empty(epoch_length)
 
-            pool_before_leaf_pool_size[0] = current_leaf_pool_size
-            pool_before_stem_pool_size[0] = current_stem_pool_size
-            pool_before_root_pool_size[0] = current_root_pool_size
-            pool_before_leaf_pool_size[1:] = leaf_pool_size[epoch_slice][:-1]
-            pool_before_stem_pool_size[1:] = stem_pool_size[epoch_slice][:-1]
-            pool_before_root_pool_size[1:] = root_pool_size[epoch_slice][:-1]
+            # First day of epoch uses initial pool size, subsequent days use previous day's pool
+            leaf_pool_size_shifted[0] = leaf_pool_epoch_init
+            stem_pool_size_shifted[0] = stem_pool_epoch_init
+            root_pool_size_shifted[0] = root_pool_epoch_init
+            leaf_pool_size_shifted[1:] = leaf_pool_size[epoch_slice][:-1]
+            stem_pool_size_shifted[1:] = stem_pool_size[epoch_slice][:-1]
+            root_pool_size_shifted[1:] = root_pool_size[epoch_slice][:-1]
 
+            # Calculate litter carbon flux to soil
+            # Litter = pool_size_before * turnover_factor * CUE_modifier
+            # Represents carbon from senesced tissue that enters the soil as organic matter
             litter_to_soil[epoch_slice] = (
-                pool_before_leaf_pool_size
-                * leaf_pool_size_turnover_factor
+                leaf_pool_size_shifted
+                * leaf_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
-                + pool_before_stem_pool_size
-                * stem_pool_size_turnover_factor
+                + stem_pool_size_shifted
+                * stem_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
-                + pool_before_root_pool_size
-                * root_pool_size_turnover_factor
+                + root_pool_size_shifted
+                * root_turnover_factor
                 / self.timestep
                 * litter_cue_epoch
             )
 
+            # Calculate leaf area index (LAI) from leaf carbon pool
+            # LAI = leaf_carbon / leaf_carbon_area_conversion_factor
+            # Represents the one-sided leaf area per unit ground area (m²/m²)
             leaf_area_index[epoch_slice] = (
                 leaf_pool_size[epoch_slice] / self.leaf_carbon_area
             )
+
+            # Calculate Net Primary Productivity (NPP) for the epoch
+            # NPP = GPP - total_autotrophic_respiration (leaf + stem + root)
+            # This is the net carbon gain available for growth and storage
             npp_out[epoch_slice] = (
                 gpp[epoch_slice] * self.timestep
                 - leaf_respiration[epoch_slice]
-                - stem_pool_size_respiration[epoch_slice]
-                - root_pool_size_respiration[epoch_slice]
+                - stem_respiration[epoch_slice]
+                - root_respiration[epoch_slice]
             )
 
+            # Record respiration losses for each tissue type
             leaf_respiration_loss[epoch_slice] = leaf_respiration[epoch_slice]
-            stem_respiration_loss[epoch_slice] = stem_pool_size_respiration[epoch_slice]
-            root_respiration_loss[epoch_slice] = root_pool_size_respiration[epoch_slice]
+            stem_respiration_loss[epoch_slice] = stem_respiration[epoch_slice]
+            root_respiration_loss[epoch_slice] = root_respiration[epoch_slice]
 
-        disturbance_indices = np.where(disturbance_mask)[0]
+            # Find disturbance indices that fall within this epoch
+            epoch_disturbance_indices = disturbance_indices[
+                (disturbance_indices >= epoch_start) & (disturbance_indices < epoch_end)
+            ]
 
-        for i in disturbance_indices:
-            if is_crop:
-                disturbance[i] = leaf_pool_size[i]
-                total_pool = leaf_pool_size[i] + stem_pool_size[i] + root_pool_size[i]
-                litter_to_soil[i] += total_pool
-                leaf_pool_size[i] = 0.0
-                stem_pool_size[i] = 0.0
-                root_pool_size[i] = 0.0
-            else:
-                disturbance[i] = leaf_pool_size[i] * disturbance_fraction[i]
-                leaf_pool_size[i] -= disturbance[i]
+            # Process disturbance events within the epoch
+            # Applies different logic for crops (harvest) vs. other plant types (natural disturbance)
+            for i in epoch_disturbance_indices:
+                if is_crop:
+                    # For crops: harvest event removes all leaf biomass
+                    # Total biomass (including stem and root) becomes litter to soil
+                    # This simulates combines removing aboveground but leaving residues
+                    disturbance[i] = leaf_pool_size[i]
+                    total_pool = (
+                        leaf_pool_size[i] + stem_pool_size[i] + root_pool_size[i]
+                    )
+                    litter_to_soil[i] += total_pool
+                    leaf_pool_size[i] = 0.0
+                    stem_pool_size[i] = 0.0
+                    root_pool_size[i] = 0.0
+                else:
+                    # For non-crops: disturbance (fire, wind, etc.) removes a fraction of leaf biomass
+                    # Fraction based on severity of GPP/LAI drop
+                    disturbance[i] = leaf_pool_size[i] * disturbance_fraction[i]
+                    leaf_pool_size[i] -= disturbance[i]
 
-            leaf_respiration_loss[i] = 0.0
-            stem_respiration_loss[i] = 0.0
-            root_respiration_loss[i] = 0.0
-            npp_out[i] = 0.0
-            leaf_area_index[i] = leaf_pool_size[i] / self.leaf_carbon_area
+                # After disturbance: no respiration, no NPP, LAI recalculated from remaining leaf pool
+                leaf_respiration_loss[i] = 0.0
+                stem_respiration_loss[i] = 0.0
+                root_respiration_loss[i] = 0.0
+                npp_out[i] = 0.0
+                leaf_area_index[i] = leaf_pool_size[i] / self.leaf_carbon_area
 
+            # Update epoch boundary values for next epoch
+            leaf_pool_epoch_init = leaf_pool_size[epoch_end - 1]
+            stem_pool_epoch_init = stem_pool_size[epoch_end - 1]
+            root_pool_epoch_init = root_pool_size[epoch_end - 1]
+
+        # Return all computed state variables and fluxes as a dictionary
         return {
             "leaf_pool_size": leaf_pool_size,
             "stem_pool_size": stem_pool_size,
