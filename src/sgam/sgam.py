@@ -10,7 +10,7 @@ respiration, and disturbance events.
 import numpy as np
 from numpy.typing import NDArray
 
-from .pft import PlantFunctionalType, PFT_PARAMS
+from .pft import PlantFunctionalType, get_default_pft_params
 from .utils import (
     rescale_to_unit_interval,
     compute_relative_changes,
@@ -81,7 +81,7 @@ class SgamComponent:
         growing_season_limit: float | None = None,
         timestep: float = 1.0,
     ):
-        pft_params = PFT_PARAMS[plant_type]
+        pft_params = get_default_pft_params(plant_type)
 
         self.plant_type = plant_type
         self.leaf_turnover_rate = (
@@ -306,7 +306,7 @@ class SgamComponent:
         n_timesteps = len(gpp)
 
         # Retrieve plant functional type (PFT) parameters for the current plant type
-        pft_params = PFT_PARAMS[self.plant_type]
+        pft_params = get_default_pft_params(self.plant_type)
 
         # Compute Carbon Use Efficiency (CUE) from light use efficiency (LUE) and intrinsic water use efficiency (IWUE)
         # CUE represents the fraction of GPP that remains as Net Primary Productivity (NPP) after autotrophic respiration
@@ -399,9 +399,6 @@ class SgamComponent:
         leaf_area_index = np.zeros(n_timesteps)
         npp_out = np.zeros(n_timesteps)
         disturbance = np.zeros(n_timesteps)
-
-        # Get indices where disturbance events occur
-        disturbance_indices = np.where(disturbance_mask)[0]
 
         # Initialize epoch boundary pool values to initial conditions
         # These are updated at the end of each epoch to carry state to the next epoch
@@ -521,38 +518,41 @@ class SgamComponent:
             stem_respiration_loss[epoch_slice] = stem_respiration[epoch_slice]
             root_respiration_loss[epoch_slice] = root_respiration[epoch_slice]
 
-            # Find disturbance indices that fall within this epoch
-            epoch_disturbance_indices = disturbance_indices[
-                (disturbance_indices >= epoch_start) & (disturbance_indices < epoch_end)
-            ]
+            # Apply disturbance at the last timestep of the epoch, but only if it's actually a disturbance day
+            if disturbance_mask[epoch_end - 1]:
+                disturbance_index = epoch_end - 1
 
-            # Process disturbance events within the epoch
-            # Applies different logic for crops (harvest) vs. other plant types (natural disturbance)
-            for i in epoch_disturbance_indices:
                 if self.plant_type is PlantFunctionalType.CROP:
                     # For crops: harvest event removes all leaf biomass
                     # Total biomass (including stem and root) becomes litter to soil
                     # This simulates combines removing aboveground but leaving residues
-                    disturbance[i] = leaf_pool_size[i]
+                    disturbance[disturbance_index] = leaf_pool_size[disturbance_index]
                     total_pool = (
-                        leaf_pool_size[i] + stem_pool_size[i] + root_pool_size[i]
+                        leaf_pool_size[disturbance_index]
+                        + stem_pool_size[disturbance_index]
+                        + root_pool_size[disturbance_index]
                     )
-                    litter_to_soil[i] += total_pool
-                    leaf_pool_size[i] = 0.0
-                    stem_pool_size[i] = 0.0
-                    root_pool_size[i] = 0.0
+                    litter_to_soil[disturbance_index] += total_pool
+                    leaf_pool_size[disturbance_index] = 0.0
+                    stem_pool_size[disturbance_index] = 0.0
+                    root_pool_size[disturbance_index] = 0.0
                 else:
                     # For non-crops: disturbance (fire, wind, etc.) removes a fraction of leaf biomass
                     # Fraction based on severity of GPP/LAI drop
-                    disturbance[i] = leaf_pool_size[i] * disturbance_fraction[i]
-                    leaf_pool_size[i] -= disturbance[i]
+                    disturbance[disturbance_index] = (
+                        leaf_pool_size[disturbance_index]
+                        * disturbance_fraction[disturbance_index]
+                    )
+                    leaf_pool_size[disturbance_index] -= disturbance[disturbance_index]
 
                 # After disturbance: no respiration, no NPP, LAI recalculated from remaining leaf pool
-                leaf_respiration_loss[i] = 0.0
-                stem_respiration_loss[i] = 0.0
-                root_respiration_loss[i] = 0.0
-                npp_out[i] = 0.0
-                leaf_area_index[i] = leaf_pool_size[i] / self.leaf_carbon_area
+                leaf_respiration_loss[disturbance_index] = 0.0
+                stem_respiration_loss[disturbance_index] = 0.0
+                root_respiration_loss[disturbance_index] = 0.0
+                npp_out[disturbance_index] = 0.0
+                leaf_area_index[disturbance_index] = (
+                    leaf_pool_size[disturbance_index] / self.leaf_carbon_area
+                )
 
             # Update epoch boundary values for next epoch
             leaf_pool_epoch_init = leaf_pool_size[epoch_end - 1]
