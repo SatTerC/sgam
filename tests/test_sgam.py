@@ -35,7 +35,12 @@ class TestComputeDroughtModifier:
 
 class TestComputeAllocationPercentages:
     def test_allocations_sum_to_one(self):
-        component = SgamComponent(PlantFunctionalType.TREE)
+        component = SgamComponent(
+            PlantFunctionalType.TREE,
+            leaf_base_allocation=0.3,
+            stem_base_allocation=0.4,
+            root_base_allocation=0.3,
+        )
         temperature = np.array([20.0, 25.0])
         day_of_year = np.array([1.0, 2.0])
         soil_moisture = np.array([0.5, 0.5])
@@ -47,9 +52,6 @@ class TestComputeAllocationPercentages:
             vpd,
             moisture_threshold=0.5,
             vpd_max=1000.0,
-            base_leaf=0.3,
-            base_stem=0.4,
-            base_root=0.3,
         )
         total = leaf + stem + root
         np.testing.assert_allclose(total, np.ones(2), rtol=1e-10)

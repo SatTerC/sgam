@@ -45,18 +45,6 @@ class SgamComponent:
         timestep : float, optional
             Timestep in days (default: 1.0).
 
-    Returns
-    -------
-    tuple[dict[str, NDArray], np.ndarray]
-        Tuple of (output dict, dates array) with output dict containing:
-        - 'leaf_pool_size', 'stem_pool_size', 'root_pool_size': Carbon pool sizes.
-        - 'litter_to_soil': Daily litter carbon to soil.
-        - 'leaf_respiration_loss', 'stem_respiration_loss', 'root_respiration_loss': Daily respiration losses.
-        - 'leaf_area_index': Simulated LAI.
-        - 'npp': Net primary productivity.
-        - 'cue': Carbon use efficiency timeseries.
-        - 'disturbance': Carbon loss due to disturbance/harvest.
-
     Notes
     -----
     - Pools and fluxes are updated daily based on allocation rules, turnover, and disturbance detection.
@@ -79,6 +67,9 @@ class SgamComponent:
         leaf_carbon_area: float | None = None,
         disturbance_limit: float | None = None,
         growing_season_limit: float | None = None,
+        leaf_base_allocation: float | None = None,
+        stem_base_allocation: float | None = None,
+        root_base_allocation: float | None = None,
         timestep: float = 1.0,
     ):
         pft_params = get_default_pft_params(plant_type)
@@ -113,6 +104,21 @@ class SgamComponent:
             growing_season_limit
             if growing_season_limit is not None
             else pft_params.growing_season_limit
+        )
+        self.leaf_base_allocation = (
+            leaf_base_allocation
+            if leaf_base_allocation is not None
+            else pft_params.leaf_base_allocation
+        )
+        self.stem_base_allocation = (
+            stem_base_allocation
+            if stem_base_allocation is not None
+            else pft_params.stem_base_allocation
+        )
+        self.root_base_allocation = (
+            root_base_allocation
+            if root_base_allocation is not None
+            else pft_params.root_base_allocation
         )
         self.timestep = timestep
 
@@ -177,9 +183,6 @@ class SgamComponent:
         vpd: NDArray,
         moisture_threshold: float,
         vpd_max: float,
-        base_leaf: float,
-        base_stem: float,
-        base_root: float,
     ) -> tuple[NDArray, NDArray, NDArray]:
         """
         Compute dynamic allocation percentages based on environmental factors.
@@ -198,47 +201,56 @@ class SgamComponent:
             Threshold for soil moisture stress.
         vpd_max : float
             Maximum VPD value.
-        base_leaf : float
-            Base allocation fraction for leaf.
-        base_stem : float
-            Base allocation fraction for stem.
-        base_root : float
-            Base allocation fraction for root.
 
         Returns
         -------
         tuple[NDArray, NDArray, NDArray]
             Tuple with allocation percentages for 'leaf', 'stem', 'root'.
         """
+        # NOTE: a lot of hard-coded values here - needs looking at
+
+        # Calculate seasonal and temperature modifiers for allocation fractions
+        # seasonality_mod: sinusoidal variation with annual cycle (peak at summer solstice)
+        # temp_mod: normalized temperature deviation from 20°C (warmer = more to leaves)
         seasonality_mod = np.sin(2 * np.pi * day_of_year / 365.0)
         temp_mod = (temperature - 20) / 100
 
+        # Apply modifiers to base allocation fractions to get dynamic allocations
+        # Positive seasonality: more to leaves in summer, more to roots in winter
+        # Positive temp_mod: warmer temps favor leaf allocation over stem
         dynamic_leaf = np.maximum(
-            0, base_leaf + 0.15 * seasonality_mod + 0.1 * temp_mod
+            0, self.leaf_base_allocation + 0.15 * seasonality_mod + 0.1 * temp_mod
         )
         dynamic_root = np.maximum(
-            0, base_root - 0.15 * seasonality_mod - 0.05 * temp_mod
+            0, self.root_base_allocation - 0.15 * seasonality_mod - 0.05 * temp_mod
         )
-        dynamic_stem = np.maximum(0, base_stem - 0.05 * temp_mod)
+        dynamic_stem = np.maximum(0, self.stem_base_allocation - 0.05 * temp_mod)
 
+        # Normalize dynamic allocations so they sum to 1.0 (preserving relative proportions)
         total_dynamic = dynamic_leaf + dynamic_stem + dynamic_root
         total_dynamic = np.maximum(total_dynamic, 1e-10)
-
         dynamic_leaf = dynamic_leaf / total_dynamic
         dynamic_stem = dynamic_stem / total_dynamic
         dynamic_root = dynamic_root / total_dynamic
 
+        # Compute drought stress modifier based on soil moisture and VPD
+        # Values > 0 indicate drought stress (0 = no stress, higher = more stress)
         drought_modifier = self.compute_drought_modifier(
             soil_moisture, vpd, moisture_threshold, vpd_max
         )
 
+        # Under drought conditions, shift allocation toward roots and away from leaves/stems
+        # Root adjustment: +10% allocation under full drought
+        # Leaf+stem adjustment: -10% total under full drought (70% to leaves, 30% to stems)
         root_adjustment = drought_modifier * 0.1
         leaf_stem_adjustment = -drought_modifier * 0.1
 
+        # Apply drought adjustments and ensure non-negative allocations
         final_root = np.maximum(0, dynamic_root + root_adjustment)
         final_leaf = np.maximum(0, dynamic_leaf + leaf_stem_adjustment * 0.7)
         final_stem = np.maximum(0, dynamic_stem + leaf_stem_adjustment * 0.3)
 
+        # Final normalization to ensure allocations sum to 1.0
         total_percentage = final_leaf + final_stem + final_root
         total_percentage = np.maximum(total_percentage, 1e-10)
 
@@ -305,9 +317,6 @@ class SgamComponent:
         # Determine number of simulation timesteps from GPP input array
         n_timesteps = len(gpp)
 
-        # Retrieve plant functional type (PFT) parameters for the current plant type
-        pft_params = get_default_pft_params(self.plant_type)
-
         # Compute Carbon Use Efficiency (CUE) from light use efficiency (LUE) and intrinsic water use efficiency (IWUE)
         # CUE represents the fraction of GPP that remains as Net Primary Productivity (NPP) after autotrophic respiration
         cue = self.compute_cue(lue, iwue)
@@ -337,9 +346,6 @@ class SgamComponent:
             vpd,
             moisture_threshold,
             vpd_max,
-            pft_params.leaf_base_allocation,
-            pft_params.stem_base_allocation,
-            pft_params.root_base_allocation,
         )
 
         # Allocate GPP to each tissue pool based on computed percentages and timestep
