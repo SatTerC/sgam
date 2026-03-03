@@ -28,7 +28,7 @@ class TestDisturbanceDetection:
             **driving_data_no_disturbance,
             **initial_pools,
         )
-        disturbance_count = np.count_nonzero(result["disturbance"])
+        disturbance_count = np.count_nonzero(result["disturbance_losses"])
         assert disturbance_count == 0
 
     @pytest.mark.parametrize(
@@ -46,7 +46,7 @@ class TestDisturbanceDetection:
             **driving_data_one_disturbance,
             **initial_pools,
         )
-        disturbance_count = np.count_nonzero(result["disturbance"])
+        disturbance_count = np.count_nonzero(result["disturbance_losses"])
         assert disturbance_count == 1
 
     @pytest.mark.parametrize(
@@ -64,5 +64,5 @@ class TestDisturbanceDetection:
             **driving_data_two_disturbances,
             **initial_pools,
         )
-        disturbance_count = np.count_nonzero(result["disturbance"])
+        disturbance_count = np.count_nonzero(result["disturbance_losses"])
         assert disturbance_count == 2

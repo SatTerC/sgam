@@ -86,7 +86,7 @@ class TestForwardCropDisturbance:
         )
 
         assert result["leaf_pool_size"][3] == 0.0
-        assert result["disturbance"][3] > 0.0
+        assert result["disturbance_losses"][3] > 0.0
 
 
 class TestForwardTreeDisturbance:
