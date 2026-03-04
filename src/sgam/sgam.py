@@ -432,7 +432,7 @@ class SgamComponent:
         leaf_pool_size = np.zeros(n_timesteps)
         stem_pool_size = np.zeros(n_timesteps)
         root_pool_size = np.zeros(n_timesteps)
-        disturbance_losses = np.zeros(n_timesteps)
+        disturbance_loss = np.zeros(n_timesteps)
 
         # Initialize epoch boundary pool values to initial conditions
         # These are updated at the end of each epoch to carry state to the next epoch
@@ -463,18 +463,13 @@ class SgamComponent:
                 root_net_allocation[epoch_slice],
             )
 
-            # Ensure pools cannot go negative
-            leaf_pool_size[epoch_slice] = np.maximum(leaf_pool_size[epoch_slice], 0.0)
-            stem_pool_size[epoch_slice] = np.maximum(stem_pool_size[epoch_slice], 0.0)
-            root_pool_size[epoch_slice] = np.maximum(root_pool_size[epoch_slice], 0.0)
-
             # Apply disturbance at the last timestep of the epoch, but only if it's actually a disturbance day
             if disturbance_mask[epoch_end - 1]:
                 disturbance_index = epoch_end - 1
 
                 if self.plant_type is PlantFunctionalType.CROP:
                     # Total biomass (including stem and root) becomes litter to soil
-                    disturbance_losses[disturbance_index] = (
+                    disturbance_loss[disturbance_index] = (
                         leaf_pool_size[disturbance_index]
                         + stem_pool_size[disturbance_index]
                         + root_pool_size[disturbance_index]
@@ -487,11 +482,11 @@ class SgamComponent:
                 else:
                     # For non-crops: disturbance (fire, wind, etc.) removes a fraction of leaf biomass
                     # Fraction based on severity of GPP/LAI drop
-                    disturbance_losses[disturbance_index] = (
+                    disturbance_loss[disturbance_index] = (
                         leaf_pool_size[disturbance_index]
                         * disturbance_fraction[disturbance_index]
                     )
-                    leaf_pool_size[disturbance_index] -= disturbance_losses[
+                    leaf_pool_size[disturbance_index] -= disturbance_loss[
                         disturbance_index
                     ]
 
@@ -514,7 +509,7 @@ class SgamComponent:
         # Calculate natural turnover
         # Litter = pool_size_before * turnover_factor * CUE_modifier
         # Represents carbon from senesced tissue that enters the soil as organic matter
-        litter_to_soil = (
+        turnover_loss = (
             leaf_pool_size_shifted * leaf_decay_factor
             + stem_pool_size_shifted * stem_decay_factor
             + root_pool_size_shifted * root_decay_factor
@@ -533,8 +528,8 @@ class SgamComponent:
             "leaf_respiration_loss": leaf_respiration_loss,
             "stem_respiration_loss": stem_respiration_loss,
             "root_respiration_loss": root_respiration_loss,
-            "litter_to_soil": litter_to_soil,
-            "disturbance_losses": disturbance_losses,
+            "turnover_loss": turnover_loss,
+            "disturbance_loss": disturbance_loss,
             "leaf_area_index": lai_out,
             "npp": npp_out,
             "cue": cue,
