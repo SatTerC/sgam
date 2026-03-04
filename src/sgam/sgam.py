@@ -156,8 +156,6 @@ class SgamComponent:
         self,
         soil_moisture: NDArray,
         vpd: NDArray,
-        moisture_threshold: float,
-        vpd_max: float,
     ) -> NDArray:
         """
         Compute drought modifier based on soil moisture and VPD.
@@ -168,16 +166,21 @@ class SgamComponent:
             Soil moisture values.
         vpd : NDArray
             Vapor pressure deficit values (Pa).
-        moisture_threshold : float
-            Threshold for soil moisture stress.
-        vpd_max : float
-            Maximum VPD value.
 
         Returns
         -------
         NDArray
             Drought modifier values.
         """
+        # Calculate environmental stress thresholds from percentiles of input data
+        # 25th percentile of soil moisture serves as moisture stress threshold
+        # 75th percentile of VPD serves as maximum vapor pressure deficit threshold
+        # Clip the value between vaguely physically plausible limits:
+        # soil_moisture = 0.05 is around wilting point
+        # VPD = 5000 is extreme desert conditions
+        moisture_threshold = max(0.05, min(1.0, np.percentile(soil_moisture, 25)))
+        vpd_max = max(100, min(5000, np.percentile(vpd, 75)))
+
         normalized_moisture = np.minimum(soil_moisture / moisture_threshold, 1.0)
         normalized_vpd = np.minimum(vpd / vpd_max, 1.0)
         return (1 - normalized_moisture) + normalized_vpd
@@ -188,8 +191,6 @@ class SgamComponent:
         day_of_year: NDArray,
         soil_moisture: NDArray,
         vpd: NDArray,
-        moisture_threshold: float,
-        vpd_max: float,
     ) -> tuple[NDArray, NDArray, NDArray]:
         """
         Compute dynamic allocation percentages based on environmental factors.
@@ -204,10 +205,6 @@ class SgamComponent:
             Soil moisture values.
         vpd : NDArray
             Vapor pressure deficit values (Pa).
-        moisture_threshold : float
-            Threshold for soil moisture stress.
-        vpd_max : float
-            Maximum VPD value.
 
         Returns
         -------
@@ -242,9 +239,7 @@ class SgamComponent:
 
         # Compute drought stress modifier based on soil moisture and VPD
         # Values > 0 indicate drought stress (0 = no stress, higher = more stress)
-        drought_modifier = self.compute_drought_modifier(
-            soil_moisture, vpd, moisture_threshold, vpd_max
-        )
+        drought_modifier = self.compute_drought_modifier(soil_moisture, vpd)
 
         # Under drought conditions, shift allocation toward roots and away from leaves/stems
         # Root adjustment: +10% allocation under full drought
@@ -333,13 +328,6 @@ class SgamComponent:
         gpp_rel_change = compute_relative_changes(gpp)
         lai_rel_change = compute_relative_changes(lai_obs)
 
-        # Calculate environmental stress thresholds from percentiles of input data
-        # 25th percentile of soil moisture serves as moisture stress threshold
-        moisture_threshold = np.percentile(soil_moisture, 25)
-        # 75th percentile of VPD serves as maximum vapor pressure deficit threshold
-        vpd_max = np.percentile(vpd, 75)
-        # NOTE: should these be configurable by the user??
-
         # Compute dynamic carbon allocation fractions for each tissue type (leaf, stem, root)
         # These percentages vary seasonally and in response to environmental conditions (temperature, moisture, VPD)
         (
@@ -351,8 +339,6 @@ class SgamComponent:
             day_of_year,
             soil_moisture,
             vpd,
-            moisture_threshold,
-            vpd_max,
         )
 
         # Allocate GPP to each tissue pool based on computed percentages and timestep

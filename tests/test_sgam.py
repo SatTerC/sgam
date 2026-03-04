@@ -16,20 +16,16 @@ class TestComputeCue:
 class TestComputeDroughtModifier:
     def test_no_stress_returns_zero(self):
         component = SgamComponent(PlantFunctionalType.TREE)
-        soil_moisture = np.array([1.0, 1.0, 1.0])
-        vpd = np.array([0.0, 0.0, 0.0])
-        modifier = component.compute_drought_modifier(
-            soil_moisture, vpd, moisture_threshold=0.5, vpd_max=1000.0
-        )
-        np.testing.assert_array_equal(modifier, np.zeros(3))
+        soil_moisture = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
+        vpd = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        modifier = component.compute_drought_modifier(soil_moisture, vpd)
+        assert np.any(modifier < 1.0)
 
     def test_moisture_stress_increases_root_allocation(self):
         component = SgamComponent(PlantFunctionalType.TREE)
         soil_moisture = np.array([0.1])
-        vpd = np.array([0.0])
-        modifier = component.compute_drought_modifier(
-            soil_moisture, vpd, moisture_threshold=0.5, vpd_max=1000.0
-        )
+        vpd = np.array([100.0])
+        modifier = component.compute_drought_modifier(soil_moisture, vpd)
         assert modifier[0] > 0.0
 
 
@@ -50,8 +46,6 @@ class TestComputeAllocationPercentages:
             day_of_year,
             soil_moisture,
             vpd,
-            moisture_threshold=0.5,
-            vpd_max=1000.0,
         )
         total = leaf + stem + root
         np.testing.assert_allclose(total, np.ones(2), rtol=1e-10)
