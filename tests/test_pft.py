@@ -26,6 +26,6 @@ class TestPFTParameters:
         assert params.leaf_carbon_area > 0.0
 
     @pytest.mark.parametrize("pft", PlantFunctionalType)
-    def test_disturbance_limit_in_valid_range(self, pft):
+    def test_disturbance_threshold_in_valid_range(self, pft):
         params = get_default_pft_params(pft)
-        assert 0.0 < params.disturbance_limit <= 1.0
+        assert 0.0 < params.disturbance_threshold <= 1.0

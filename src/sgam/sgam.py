@@ -162,7 +162,7 @@ class SgamComponent:
         # If VPD is in Pa, gamma should be around 0.00005 to 0.0001
         gamma = 0.0001
         f_vpd = np.exp(
-            -gamma * np.maximum(vpd - vpd_thresh, 0)
+            -gamma * np.maximum(vpd - vpd_thresh, 0.0)
         )  # Threshold of 500Pa before stress starts
 
         # 3. Combine using the Minimum (Liebig's Law)

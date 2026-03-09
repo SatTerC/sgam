@@ -76,10 +76,14 @@ class PftParams:
             photosynthesis under extreme water tension.
         leaf_carbon_area: Specific leaf area expressed as carbon content
             per unit leaf area (gC/m²).
-        disturbance_limit: Maximum fraction of biomass that can be removed
-            by disturbance events.
-        growing_season_limit: Minimum number of frost-free days required
-            for successful growth.
+        wilting_point: Soil moisture (fraction, 0.0-1.0) at which plant
+            water stress reaches maximum (f_sm = 0).
+        field_capacity: Soil moisture (fraction, 0.0-1.0) at which plant
+            water stress is minimum (f_sm = 1).
+        vpd_threshold: Vapor Pressure Deficit (Pa) above which stomatal
+            conductance begins to decline.
+        vpd_sensitivity: Rate of decline in stomatal conductance with
+            increasing VPD (Pa^-1^). Used in f_vpd = exp(-gamma * (VPD - threshold)).
     """
 
     def __post_init__(self) -> None:
@@ -122,6 +126,12 @@ class PftParams:
     # Physical constants
     leaf_carbon_area: float
 
+    # Hydro-physiological constants
+    wilting_point: float
+    field_capacity: float
+    vpd_threshold: float
+    vpd_sensitivity: float
+
 
 #   growing_season_limit: float
 
@@ -142,6 +152,10 @@ _PFT_PARAMS = {
         disturbance_threshold=0.3,
         disturbance_leaf_loss_frac=0.4,
         leaf_carbon_area=60.0,
+        wilting_point=0.12,
+        field_capacity=0.35,
+        vpd_threshold=800.0,
+        vpd_sensitivity=0.0005,
     ),
     PlantFunctionalType.GRASS: PftParams(
         leaf_base_allocation=0.45,
@@ -158,6 +172,10 @@ _PFT_PARAMS = {
         disturbance_threshold=0.2,
         disturbance_leaf_loss_frac=0.9,
         leaf_carbon_area=40.0,
+        wilting_point=0.08,
+        field_capacity=0.30,
+        vpd_threshold=500.0,
+        vpd_sensitivity=0.0008,
     ),
     PlantFunctionalType.SHRUB: PftParams(
         leaf_base_allocation=0.20,
@@ -174,6 +192,10 @@ _PFT_PARAMS = {
         disturbance_threshold=0.25,
         disturbance_leaf_loss_frac=0.5,
         leaf_carbon_area=80.0,
+        wilting_point=0.05,
+        field_capacity=0.25,
+        vpd_threshold=1200.0,
+        vpd_sensitivity=0.0003,
     ),
     PlantFunctionalType.CROP: PftParams(
         leaf_base_allocation=0.40,
@@ -190,6 +212,10 @@ _PFT_PARAMS = {
         disturbance_threshold=0.1,
         disturbance_leaf_loss_frac=1.0,
         leaf_carbon_area=35.0,
+        wilting_point=0.15,
+        field_capacity=0.40,
+        vpd_threshold=400.0,
+        vpd_sensitivity=0.0012,
     ),
 }
 
