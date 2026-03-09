@@ -1,3 +1,0 @@
-# `sgam.utils`
-
-::: sgam.utils

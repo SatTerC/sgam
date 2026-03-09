@@ -133,9 +133,6 @@ class PftParams:
     vpd_sensitivity: float
 
 
-#   growing_season_limit: float
-
-
 _PFT_PARAMS = {
     PlantFunctionalType.TREE: PftParams(
         leaf_base_allocation=0.25,
@@ -231,7 +228,7 @@ def get_default_pft_params(pft: PlantFunctionalType) -> PftParams:
         pft: The plant functional type to get parameters for.
 
     Returns:
-        PftParams: The default physiological parameters for the specified PFT.
+        The default physiological parameters for the specified PFT.
 
     Raises:
         KeyError: If the given PFT is not recognized.

@@ -14,22 +14,22 @@ from .pft import PlantFunctionalType, get_default_pft_params
 
 
 class SgamComponent:
-    """
-    The Simplified Growth/GPP Allocation Model (SGAM) simulates the allocation of gross primary productivity (GPP)
-    to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size) for 4 plant types (tree, grass, crop, shrub) over time,
-    based on environmental drivers and physiological parameters.
-    It accounts for dynamic allocation, turnover, respiration, disturbance/harvest events, and outputs pool sizes and fluxes.
+    """The Simplified Growth/GPP Allocation Model (SGAM).
 
-    Parameters
-    ----------
-        plant_type : PlantFunctionalType
-            Type of plant (tree, grass, crop, or shrub).
+    Simulates the allocation of gross primary productivity (GPP) to plant
+    carbon pools (leaf_pool_size, stem_pool_size, root_pool_size) for
+    4 plant types (tree, grass, crop, shrub) over time, based on environmental
+    drivers and physiological parameters. It accounts for dynamic allocation,
+    turnover, respiration, disturbance/harvest events, and outputs pool sizes
+    and fluxes.
 
-    Todo
-    -----
-    - Refine crop modelling --> growing_season_limit necessary ?
-    - Add PC output for RothC when crop harvested or not emerged
-    - Add grazing -> manure return to RothC
+    Args:
+        plant_type: Type of plant (tree, grass, crop, or shrub).
+
+    Todo:
+        - Refine crop modelling --> growing_season_limit necessary ?
+        - Add PC output for RothC when crop harvested or not emerged
+        - Add grazing -> manure return to RothC
     """
 
     def __init__(
@@ -40,22 +40,16 @@ class SgamComponent:
         self.pft_params = get_default_pft_params(plant_type)
 
     def compute_cue(self, lue: NDArray, iwue: NDArray) -> NDArray:
-        """
-        Compute carbon use efficiency (CUE) from light use efficiency and
+        """Compute carbon use efficiency (CUE) from light use efficiency and
         intrinsic water use efficiency.
 
         CUE = CUE_{max} . f(LUE_{norm}) . f(IWUE_{norm})
 
-        Parameters
-        ----------
-        lue
-            Weekly mean light use efficiency (gC/MJ).
-        iwue
-            Weekly mean intrinsic water use efficiency (umol/mol).
+        Args:
+            lue: Weekly mean light use efficiency (gC/MJ).
+            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
 
-        Returns
-        -------
-        NDArray
+        Returns:
             Carbon use efficiency values.
         """
         # Scale LUE and IWUE against theoretical maximums
@@ -76,19 +70,13 @@ class SgamComponent:
         soil_moisture: NDArray,
         vpd: NDArray,
     ) -> NDArray:
-        """
-        Compute drought modifier based on soil moisture and VPD.
+        """Compute drought modifier based on soil moisture and VPD.
 
-        Parameters
-        ----------
-        soil_moisture : NDArray
-            Soil moisture values.
-        vpd : NDArray
-            Vapor pressure deficit values (Pa).
+        Args:
+            soil_moisture: Soil moisture values.
+            vpd: Vapor pressure deficit values (Pa).
 
-        Returns
-        -------
-        NDArray
+        Returns:
             Drought modifier values.
         """
         # Calculate environmental stress thresholds from percentiles of input data
@@ -110,43 +98,37 @@ class SgamComponent:
         soil_moisture: NDArray,
         vpd: NDArray,
     ) -> NDArray:
-        r"""
-        Compute the environmental stress scalar using Liebig's Law of the Minimum.
+        r"""Compute the environmental stress scalar using Liebig's Law of the Minimum.
 
-        This modifier accounts for both edaphic (soil) and atmospheric (VPD) water 
-        stress. The final modifier is the minimum of the two individual stress 
+        This modifier accounts for both edaphic (soil) and atmospheric (VPD) water
+        stress. The final modifier is the minimum of the two individual stress
         functions, ranging from 0.0 (maximum stress) to 1.0 (no stress).
 
         **Soil Moisture Stress** ($f_{sm}$):
-        Scales linearly between the wilting point ($\theta_{wp}$) and a 
+        Scales linearly between the wilting point ($\theta_{wp}$) and a
         reference soil moisture ($\theta_{ref}$):
-        
+
         $$
-        f_{sm} = \begin{cases} 
+        f_{sm} = \begin{cases}
         0 & \theta < \theta_{wp} \\
         \frac{\theta - \theta_{wp}}{\theta_{ref} - \theta_{wp}} & \theta_{wp} \le \theta \le \theta_{ref} \\
-        1 & \theta > \theta_{ref} 
+        1 & \theta > \theta_{ref}
         \end{cases}
         $$
 
         **VPD Stress** ($f_{vpd}$):
-        Represents stomatal closure as a function of vapor pressure deficit 
+        Represents stomatal closure as a function of vapor pressure deficit
         using an exponential decay:
 
         $$
         f_{vpd} = \exp(-\gamma \cdot \max(0, VPD - VPD_{threshold}))
         $$
 
-        Parameters
-        ----------
-        soil_moisture : NDArray[np.float64]
-            Volumetric soil water content ($\text{m}^3/\text{m}^3$).
-        vpd : NDArray[np.float64]
-            Vapor Pressure Deficit in Pascals (Pa).
+        Args:
+            soil_moisture: Volumetric soil water content ($m^3/m^3$).
+            vpd: Vapor Pressure Deficit in Pascals (Pa).
 
-        Returns
-        -------
-        NDArray[np.float64]
+        Returns:
             The combined drought modifier $\min(f_{sm}, f_{vpd})$.
         """
         # Retrieve PFT-specific sensitivities
@@ -176,23 +158,15 @@ class SgamComponent:
         vpd: NDArray[np.float64],
         week_of_year: NDArray[np.float64],
     ) -> tuple[NDArray, NDArray, NDArray]:
-        """
-        Compute dynamic carbon allocation fractions for leaf, stem, and root pools.
+        """Compute dynamic carbon allocation fractions for leaf, stem, and root pools.
 
-        Parameters
-        ----------
-        temperature : NDArray[np.float64]
-            Weekly mean air temperature (degC).
-        soil_moisture : NDArray[np.float64]
-            Weekly mean soil moisture content (normalized or mm, depending on input).
-        vpd : NDArray[np.float64]
-            Weekly mean vapor pressure deficit (Pa).
-        week_of_year : NDArray[np.float64]
-            The week number of the simulation year (1 to 52).
+        Args:
+            temperature: Weekly mean air temperature (degC).
+            soil_moisture: Weekly mean soil moisture content (normalized or mm).
+            vpd: Weekly mean vapor pressure deficit (Pa).
+            week_of_year: The week number of the simulation year (1 to 52).
 
-        Returns
-        -------
-        tuple[NDArray, NDArray, NDArray]
+        Returns:
             Allocation fractions for (leaf, stem, root), summing to 1.0.
         """
         # 1. Seasonality Modifier
@@ -260,11 +234,8 @@ class SgamComponent:
         stem_pool_init: float,
         root_pool_init: float,
     ) -> dict[str, NDArray]:
-        """
-        Simulate weekly plant growth and carbon allocation using a mass-balance approach.
+        """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
 
-        Model Logic
-        -----------
         The model operates on a weekly timestep using a discrete mass-balance:
         1. GPP (mass) is allocated to tissues via fractions modified by weekly climate.
         2. Growth Respiration is deducted via CUE (PFT-specific stress-scaling).
@@ -274,31 +245,21 @@ class SgamComponent:
            while others lose a fraction of leaf biomass.
         5. Litter to Soil is the sum of natural turnover and disturbance biomass.
 
-        Parameters
-        ----------
-        gpp : NDArray[np.float64]
-            Weekly total gross primary productivity (gC).
-        temperature : NDArray[np.float64]
-            Weekly mean air temperature (degC).
-        soil_moisture : NDArray[np.float64]
-            Weekly mean soil moisture content (normalized or mm).
-        vpd : NDArray[np.float64]
-            Weekly mean vapor pressure deficit (Pa).
-        lue : NDArray[np.float64]
-            Weekly mean light use efficiency (gC/MJ).
-        iwue : NDArray[np.float64]
-            Weekly mean intrinsic water use efficiency (umol/mol).
-        week_of_year : NDArray[np.float64]
-            Weekly timestep index of the year (1-52).
-        disturbances : NDArray[np.float64]
-            The maximum daily relative decline (0.0 to 1.0) observed during the week.
-            Values of 0.0 indicate no disturbance event.
-        leaf_pool_init, stem_pool_init, root_pool_init : float
-            Initial biomass pool sizes (gC).
+        Args:
+            gpp: Weekly total gross primary productivity (gC).
+            temperature: Weekly mean air temperature (degC).
+            soil_moisture: Weekly mean soil moisture content (normalized or mm).
+            vpd: Weekly mean vapor pressure deficit (Pa).
+            lue: Weekly mean light use efficiency (gC/MJ).
+            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
+            week_of_year: Weekly timestep index of the year (1-52).
+            disturbances: The maximum daily relative decline (0.0 to 1.0) observed
+                during the week. Values of 0.0 indicate no disturbance event.
+            leaf_pool_init: Initial leaf biomass pool size (gC).
+            stem_pool_init: Initial stem biomass pool size (gC).
+            root_pool_init: Initial root biomass pool size (gC).
 
-        Returns
-        -------
-        dict[str, NDArray]
+        Returns:
             Carbon pools (gC), fluxes (gC), and diagnostics (LAI, NPP, CUE).
         """
         n_weeks = len(gpp)
@@ -435,7 +396,25 @@ class SgamComponent:
         stem_pool_init: float,
         root_pool_init: float,
     ) -> dict[str, NDArray]:
-        """Alias for `forward`."""
+        """Alias for ``forward``.
+
+        Args:
+            gpp: Weekly total gross primary productivity (gC).
+            temperature: Weekly mean air temperature (degC).
+            soil_moisture: Weekly mean soil moisture content (normalized or mm).
+            vpd: Weekly mean vapor pressure deficit (Pa).
+            lue: Weekly mean light use efficiency (gC/MJ).
+            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
+            week_of_year: Weekly timestep index of the year (1-52).
+            disturbances: The maximum daily relative decline (0.0 to 1.0) observed
+                during the week.
+            leaf_pool_init: Initial leaf biomass pool size (gC).
+            stem_pool_init: Initial stem biomass pool size (gC).
+            root_pool_init: Initial root biomass pool size (gC).
+
+        Returns:
+            Carbon pools (gC), fluxes (gC), and diagnostics (LAI, NPP, CUE).
+        """
         return self.forward(
             gpp=gpp,
             temperature=temperature,
