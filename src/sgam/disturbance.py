@@ -6,7 +6,6 @@ harvest, fire, or pest damage) based on rapid declines in GPP and LAI.
 
 Functions:
     aggregate_to_weekly: Aggregate daily disturbance severity to weekly timesteps.
-    compute_relative_changes: Compute relative changes between consecutive timesteps.
 
 Classes:
     Disturbances: Identify disturbance events and compute their severity.
@@ -14,20 +13,6 @@ Classes:
 
 import numpy as np
 from numpy.typing import NDArray
-
-
-def compute_relative_changes(x: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Compute relative changes between consecutive timesteps.
-
-    Args:
-        x: Input array.
-
-    Returns:
-        Relative changes, with first element as 0.
-    """
-    Δx = np.zeros_like(x)
-    Δx[1:] = (x[1:] - x[:-1]) / np.maximum(x[:-1], 1e-6)
-    return Δx
 
 
 def aggregate_to_weekly(daily_severity: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -159,4 +144,6 @@ class Disturbances:
         Returns:
             Disturbance severity as a fraction of biomass lost (0-1).
         """
-        return self.forward(temperature, gpp, lai, aggregate=aggregate)
+        return self.forward(
+            temperature=temperature, gpp=gpp, lai=lai, aggregate=aggregate
+        )
