@@ -1,30 +1,80 @@
+"""
+Disturbance detection module for SGAM.
+
+This module provides functionality to identify disturbance events (such as
+harvest, fire, or pest damage) based on rapid declines in GPP and LAI.
+"""
+
 import numpy as np
 from numpy.typing import NDArray
 
 
-def compute_relative_changes(x: NDArray) -> NDArray:
-    """
-    Compute relative changes between consecutive timesteps.
+def aggregate_to_weekly(daily_severity: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Aggregate daily disturbance severity to weekly timesteps.
+
+    Takes the maximum daily severity observed within each 7-day window.
+    If the input length is not a multiple of 7, it is padded with zeros.
 
     Parameters
     ----------
-    x : NDArray
-        Input array.
+    daily_severity : NDArray[np.float64]
+        Array of daily disturbance severity values.
 
     Returns
     -------
-    NDArray
-        Relative changes, with first element as 0.
+    NDArray[np.float64]
+        Array of weekly maximum disturbance severity values.
     """
-    Δx = np.zeros_like(x)
-    Δx[1:] = (x[1:] - x[:-1]) / np.maximum(x[:-1], 1e-6)
-    return Δx
+    remainder = len(daily_severity) % 7
+    if remainder > 0:
+        daily_severity = np.pad(daily_severity, (0, 7 - remainder), mode="constant")
+
+    weekly_max = daily_severity.reshape(-1, 7).max(axis=1)
+
+    return weekly_max
 
 
 class Disturbances:
+    """Disturbance event detector.
+
+    Identifies disturbance events based on rapid declines in GPP and LAI
+    during the growing season. Disturbances include events such as
+    harvest, fire, pest damage, or other biomass-removing events.
+
+    Attributes
+    ----------
+    growing_season_limit : float
+        Minimum temperature (°C) defining the growing season. Days with
+        temperature above this threshold are considered within the growing
+        season and eligible for disturbance detection.
+    disturbance_threshold : float
+        Fractional decline threshold (0-1). A disturbance event is detected
+        when both GPP and LAI decline by more than this fraction in a single
+        day.
+
+    Example
+    -------
+    >>> disturbances = Disturbances(growing_season_limit=15.0, disturbance_threshold=0.3)
+    >>> temperature = np.array([20.0, 20.0, 20.0, 20.0])
+    >>> gpp = np.array([5.0, 5.0, 1.0, 1.0])
+    >>> lai = np.array([1.0, 1.0, 0.2, 0.2])
+    >>> result = disturbances.forward(temperature, gpp, lai)
+    """
+
     def __init__(
-        self, growing_season_limit: float, disturbance_threshold: float
+        self,
+        growing_season_limit: float,
+        disturbance_threshold: float,
     ) -> None:
+        """Initialize the Disturbances detector.
+
+        Parameters
+        ----------
+        growing_season_limit : float
+            Minimum temperature (°C) defining the growing season.
+        disturbance_threshold : float
+            Fractional decline threshold (0-1) for detecting disturbances.
+        """
         self.growing_season_limit = growing_season_limit
         self.disturbance_threshold = disturbance_threshold
 
@@ -33,35 +83,65 @@ class Disturbances:
         temperature: NDArray[np.float64],
         gpp: NDArray[np.float64],
         lai: NDArray[np.float64],
+        aggregate: bool = False,
     ) -> NDArray[np.float64]:
         """Identify disturbance events and compute their severity.
 
-        Note - input data is DAILY timestep.
-        """
-        # Compute relative day-to-day changes in GPP and observed LAI to detect disturbance events
-        # These are fractional changes (e.g., -0.3 means 30% decrease from previous day)
-        gpp_rel_change = compute_relative_changes(gpp)
-        lai_rel_change = compute_relative_changes(lai)
+        A disturbance event is detected when all three conditions are met:
+        1. Temperature exceeds the growing season threshold
+        2. GPP declines by more than the disturbance threshold (fraction)
+        3. LAI declines by more than the disturbance threshold (fraction)
 
-        # Disturbance registered when:
-        # (a) within growing season: temperature above threshold
-        # (b) single-day drop in GPP exceeds threshold
-        # (c) single-day drop in LAI exceeds threshold
-        # Creates a boolean mask where True indicates a disturbance event
+        Note: Input data should be at DAILY timestep.
+
+        Parameters
+        ----------
+        temperature : NDArray[np.float64]
+            Daily temperature values (°C).
+        gpp : NDArray[np.float64]
+            Daily GPP values (gC m⁻² day⁻¹).
+        lai : NDArray[np.float64]
+            Daily LAI values (m² m⁻²).
+        aggregate : bool, optional
+            If True (default), aggregate daily results to weekly timesteps
+            by taking the maximum within each 7-day window. If False, return
+            daily values.
+
+        Returns
+        -------
+        NDArray[np.float64]
+            Disturbance severity as a fraction of biomass lost (0-1).
+            Non-disturbance days have value 0.
+            If aggregate=True, values are weekly; otherwise daily.
+        """
+        Δgpp = np.zeros_like(gpp)
+        Δlai = np.zeros_like(lai)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Δgpp[1:] = (gpp[1:] - gpp[:-1]) / gpp[:-1]
+            Δlai[1:] = (lai[1:] - lai[:-1]) / lai[:-1]
+
         disturbance_days = (
             (temperature > self.growing_season_limit)
-            & (gpp_rel_change < -self.disturbance_threshold)
-            & (lai_rel_change < -self.disturbance_threshold)
+            & (-Δgpp > self.disturbance_threshold)
+            & (-Δlai > self.disturbance_threshold)
         )
 
-        # Calculate disturbance severity as fraction of pool lost (capped at 100%)
-        # Uses the maximum of GPP or LAI relative decline to estimate biomass loss
-        disturbance_severity = np.minimum(
-            np.maximum(np.abs(gpp_rel_change), np.abs(lai_rel_change)), 1.0
+        declines = np.fmax(-Δgpp, -Δlai)
+        disturbance_severity = np.clip(
+            np.nan_to_num(declines, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
         )
 
-        # Return array which is 0 for non-disturbance days, and severity on disturbance days
-        return disturbance_severity * disturbance_days
+        result_daily = disturbance_severity * disturbance_days
 
-    def __call__(self, temperature, gpp, lai):
-        return self.forward(temperature, gpp, lai)
+        return aggregate_to_weekly(result_daily) if aggregate else result_daily
+
+    def __call__(
+        self,
+        temperature: NDArray[np.float64],
+        gpp: NDArray[np.float64],
+        lai: NDArray[np.float64],
+        aggregate: bool = False,
+    ) -> NDArray[np.float64]:
+        """An alias for `forward`."""
+        return self.forward(temperature, gpp, lai, aggregate=aggregate)
