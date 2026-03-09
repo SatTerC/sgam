@@ -12,6 +12,8 @@ Classes:
 from dataclasses import dataclass
 from enum import StrEnum
 
+import numpy as np
+
 
 class PlantFunctionalType(StrEnum):
     """Plant Functional Type (PFT) classification.
@@ -48,27 +50,148 @@ class PftParams:
             during growth. Represents the stem mass fraction (SMF).
         root_base_allocation: Fraction of new carbon allocated to roots
             during growth. Represents the root mass fraction (RMF).
-        leaf_turnover_rate: Annual leaf turnover rate (1/year). Fraction
-            of leaf biomass replaced per year.
-        stem_turnover_rate: Annual stem turnover rate (1/year). Fraction
-            of stem biomass replaced per year.
+        leaf_turnover_rate: Fraction of leaf biomass replaced per week (weeks^-1^).
+        stem_turnover_rate: Fraction of stem biomass replaced per week (weeks^-1^).
+        root_tunover_rate: Fraction of root biomass replaced per week (weeks^-1^).
+        leaf_maint_coeff: Fraction of leaf carbon respired per week (weeks^-1^)
+            for maintenance metabolism. This is the highest cost across all
+            PFTs as leaves require constant enzyme maintenance. Crops have
+            the highest values (0.14) meaning 14% of leaf carbon is burned
+            weekly without GPP.
+        stem_maint_coeff: Fraction of stem carbon respired per week (weeks^-1^)
+            for maintenance metabolism. Lower for trees and shrubs due to
+            lignified, metabolically inactive wood; higher for grasses and
+            crops with succulent, active stems.
+        root_maint_coeff: Fraction of root carbon respired per week (weeks^-1^)
+            for maintenance metabolism. Reflects the metabolic cost of
+            maintaining fine root systems for water and nutrient uptake.
+        lue_max: Maximum light use efficiency (gC MJ^-1^). Represents the
+            maximum rate of carbon gain per unit of absorbed light. Crops
+            have the highest values due to C4 photosynthesis and optimized
+            agricultural conditions; shrubs have the lowest, reflecting
+            adaptation to resource-poor environments.
+        iwue_max: Maximum intrinsic water use efficiency (μmol mol^-1^).
+            Represents the maximum ratio of photosynthesis to stomatal
+            conductance. Shrubs have the highest values to maintain
+            photosynthesis under extreme water tension.
         leaf_carbon_area: Specific leaf area expressed as carbon content
-            per unit leaf area (gC/m²). Default: 30.0.
+            per unit leaf area (gC/m²).
         disturbance_limit: Maximum fraction of biomass that can be removed
-            by disturbance events. Default: 0.3.
+            by disturbance events.
         growing_season_limit: Minimum number of frost-free days required
-            for successful growth. Default: 10.0.
+            for successful growth.
     """
 
+    def __post_init__(self) -> None:
+        total = (
+            self.leaf_base_allocation
+            + self.stem_base_allocation
+            + self.root_base_allocation
+        )
+        if not np.isclose(total, 1.0):
+            raise ValueError(
+                f"Base allocations must sum to 1.0, got {total}: "
+                f"leaf={self.leaf_base_allocation}, "
+                f"stem={self.stem_base_allocation}, "
+                f"root={self.root_base_allocation}"
+            )
+
+    # Base allocation fractions (must sum to 1.0)
     leaf_base_allocation: float
     stem_base_allocation: float
     root_base_allocation: float
+
+    # Weekly turnover rates (fraction of pool lost per week)
     leaf_turnover_rate: float
     stem_turnover_rate: float
     root_turnover_rate: float
-    leaf_carbon_area: float = 30.0
-    disturbance_limit: float = 0.3
-    growing_season_limit: float = 10.0
+
+    # Weekly maintenance coefficients (metabolic cost per unit biomass)
+    leaf_maint_coeff: float
+    stem_maint_coeff: float
+    root_maint_coeff: float
+
+    # Efficiency thresholds
+    lue_max: float  # gC / MJ
+    iwue_max: float  # μmol / mol
+
+    # Disturbance calibration
+    disturbance_threshold: float
+    disturbance_leaf_loss_frac: float
+
+    # Physical constants
+    leaf_carbon_area: float
+
+
+#   growing_season_limit: float
+
+
+_PFT_PARAMS = {
+    PlantFunctionalType.TREE: PftParams(
+        leaf_base_allocation=0.25,
+        stem_base_allocation=0.45,
+        root_base_allocation=0.30,
+        leaf_turnover_rate=0.012,
+        stem_turnover_rate=0.0002,
+        root_turnover_rate=0.010,
+        leaf_maint_coeff=0.06,
+        stem_maint_coeff=0.005,
+        root_maint_coeff=0.03,
+        lue_max=2.5,
+        iwue_max=450.0,
+        disturbance_threshold=0.3,
+        disturbance_leaf_loss_frac=0.4,
+        leaf_carbon_area=60.0,
+    ),
+    PlantFunctionalType.GRASS: PftParams(
+        leaf_base_allocation=0.45,
+        stem_base_allocation=0.10,
+        root_base_allocation=0.45,
+        leaf_turnover_rate=0.035,
+        stem_turnover_rate=0.015,
+        root_turnover_rate=0.025,
+        leaf_maint_coeff=0.09,
+        stem_maint_coeff=0.03,
+        root_maint_coeff=0.05,
+        lue_max=3.0,
+        iwue_max=350.0,
+        disturbance_threshold=0.2,
+        disturbance_leaf_loss_frac=0.9,
+        leaf_carbon_area=40.0,
+    ),
+    PlantFunctionalType.SHRUB: PftParams(
+        leaf_base_allocation=0.20,
+        stem_base_allocation=0.40,
+        root_base_allocation=0.40,
+        leaf_turnover_rate=0.010,
+        stem_turnover_rate=0.002,
+        root_turnover_rate=0.010,
+        leaf_maint_coeff=0.07,
+        stem_maint_coeff=0.01,
+        root_maint_coeff=0.04,
+        lue_max=2.2,
+        iwue_max=650.0,
+        disturbance_threshold=0.25,
+        disturbance_leaf_loss_frac=0.5,
+        leaf_carbon_area=80.0,
+    ),
+    PlantFunctionalType.CROP: PftParams(
+        leaf_base_allocation=0.40,
+        stem_base_allocation=0.40,
+        root_base_allocation=0.20,
+        leaf_turnover_rate=0.050,
+        stem_turnover_rate=0.025,
+        root_turnover_rate=0.030,
+        leaf_maint_coeff=0.12,
+        stem_maint_coeff=0.05,
+        root_maint_coeff=0.07,
+        lue_max=4.2,
+        iwue_max=300.0,
+        disturbance_threshold=0.1,
+        disturbance_leaf_loss_frac=1.0,
+        leaf_carbon_area=35.0,
+    ),
+}
 
 
 def get_default_pft_params(pft: PlantFunctionalType) -> PftParams:
@@ -97,39 +220,3 @@ def get_default_pft_params(pft: PlantFunctionalType) -> PftParams:
         0.05
     """
     return _PFT_PARAMS[pft]
-
-
-_PFT_PARAMS: dict[PlantFunctionalType, PftParams] = {
-    PlantFunctionalType.TREE: PftParams(
-        leaf_base_allocation=0.05,
-        stem_base_allocation=0.65,
-        root_base_allocation=0.30,
-        leaf_turnover_rate=0.01,
-        stem_turnover_rate=0.0001,
-        root_turnover_rate=0.005,
-    ),
-    PlantFunctionalType.GRASS: PftParams(
-        leaf_base_allocation=0.40,
-        stem_base_allocation=0.10,
-        root_base_allocation=0.50,
-        leaf_turnover_rate=0.01,
-        stem_turnover_rate=0.001,
-        root_turnover_rate=0.005,
-    ),
-    PlantFunctionalType.SHRUB: PftParams(
-        leaf_base_allocation=0.10,
-        stem_base_allocation=0.40,
-        root_base_allocation=0.50,
-        leaf_turnover_rate=0.01,
-        stem_turnover_rate=0.0005,
-        root_turnover_rate=0.005,
-    ),
-    PlantFunctionalType.CROP: PftParams(
-        leaf_base_allocation=0.25,
-        stem_base_allocation=0.50,
-        root_base_allocation=0.25,
-        leaf_turnover_rate=0.01,
-        stem_turnover_rate=0.001,
-        root_turnover_rate=0.005,
-    ),
-}
