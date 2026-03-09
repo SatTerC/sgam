@@ -1,68 +1,54 @@
-"""Tests for disturbance detection in SgamComponent."""
+"""Tests for disturbance detection in Disturbances."""
 
 import numpy as np
-import pytest
-from sgam.pft import PlantFunctionalType
-from sgam.sgam import SgamComponent
+from sgam.disturbance import Disturbances
 
 
 class TestDisturbanceDetection:
     """Test suite for disturbance event detection.
 
-    Tests both crop (which resets pools completely) and non-crop PFTs
-    (which lose a fraction of biomass).
+    Tests the Disturbances class which identifies disturbance events
+    based on rapid declines in GPP and LAI.
     """
 
-    @pytest.mark.parametrize(
-        "pft", [PlantFunctionalType.CROP, PlantFunctionalType.GRASS]
-    )
     def test_zero_disturbance_events(
         self,
-        pft,
         driving_data_no_disturbance,
-        initial_pools,
     ):
         """Test that no disturbance events are detected when driving data is constant."""
-        component = SgamComponent(pft)
-        result = component.forward(
-            **driving_data_no_disturbance,
-            **initial_pools,
+        disturbance = Disturbances(growing_season_limit=15.0, disturbance_threshold=0.3)
+        result = disturbance.forward(
+            driving_data_no_disturbance["temperature"],
+            driving_data_no_disturbance["gpp"],
+            driving_data_no_disturbance["lai_obs"],
         )
-        disturbance_count = np.count_nonzero(result["disturbance_loss"])
+        disturbance_count = np.count_nonzero(result)
         assert disturbance_count == 0
 
-    @pytest.mark.parametrize(
-        "pft", [PlantFunctionalType.CROP, PlantFunctionalType.GRASS]
-    )
     def test_one_disturbance_event(
         self,
-        pft,
         driving_data_one_disturbance,
-        initial_pools,
     ):
         """Test that exactly one disturbance event is detected."""
-        component = SgamComponent(pft)
-        result = component.forward(
-            **driving_data_one_disturbance,
-            **initial_pools,
+        disturbance = Disturbances(growing_season_limit=15.0, disturbance_threshold=0.3)
+        result = disturbance.forward(
+            driving_data_one_disturbance["temperature"],
+            driving_data_one_disturbance["gpp"],
+            driving_data_one_disturbance["lai_obs"],
         )
-        disturbance_count = np.count_nonzero(result["disturbance_loss"])
+        disturbance_count = np.count_nonzero(result)
         assert disturbance_count == 1
 
-    @pytest.mark.parametrize(
-        "pft", [PlantFunctionalType.CROP, PlantFunctionalType.GRASS]
-    )
     def test_two_disturbance_events(
         self,
-        pft,
         driving_data_two_disturbances,
-        initial_pools,
     ):
         """Test that exactly two disturbance events are detected."""
-        component = SgamComponent(pft)
-        result = component.forward(
-            **driving_data_two_disturbances,
-            **initial_pools,
+        disturbance = Disturbances(growing_season_limit=15.0, disturbance_threshold=0.3)
+        result = disturbance.forward(
+            driving_data_two_disturbances["temperature"],
+            driving_data_two_disturbances["gpp"],
+            driving_data_two_disturbances["lai_obs"],
         )
-        disturbance_count = np.count_nonzero(result["disturbance_loss"])
+        disturbance_count = np.count_nonzero(result)
         assert disturbance_count == 2

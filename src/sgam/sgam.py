@@ -71,7 +71,7 @@ class SgamComponent:
 
         return cue
 
-    def compute_drought_modifier(
+    def _compute_drought_modifier(
         self,
         soil_moisture: NDArray,
         vpd: NDArray,
@@ -104,6 +104,70 @@ class SgamComponent:
         normalized_vpd = np.minimum(vpd / vpd_max, 1.0)
 
         return (1 - normalized_moisture) + normalized_vpd
+
+    def compute_drought_modifier(
+        self,
+        soil_moisture: NDArray,
+        vpd: NDArray,
+    ) -> NDArray:
+        r"""
+        Compute the environmental stress scalar using Liebig's Law of the Minimum.
+
+        This modifier accounts for both edaphic (soil) and atmospheric (VPD) water 
+        stress. The final modifier is the minimum of the two individual stress 
+        functions, ranging from 0.0 (maximum stress) to 1.0 (no stress).
+
+        **Soil Moisture Stress** ($f_{sm}$):
+        Scales linearly between the wilting point ($\theta_{wp}$) and a 
+        reference soil moisture ($\theta_{ref}$):
+        
+        $$
+        f_{sm} = \begin{cases} 
+        0 & \theta < \theta_{wp} \\
+        \frac{\theta - \theta_{wp}}{\theta_{ref} - \theta_{wp}} & \theta_{wp} \le \theta \le \theta_{ref} \\
+        1 & \theta > \theta_{ref} 
+        \end{cases}
+        $$
+
+        **VPD Stress** ($f_{vpd}$):
+        Represents stomatal closure as a function of vapor pressure deficit 
+        using an exponential decay:
+
+        $$
+        f_{vpd} = \exp(-\gamma \cdot \max(0, VPD - VPD_{threshold}))
+        $$
+
+        Parameters
+        ----------
+        soil_moisture : NDArray[np.float64]
+            Volumetric soil water content ($\text{m}^3/\text{m}^3$).
+        vpd : NDArray[np.float64]
+            Vapor Pressure Deficit in Pascals (Pa).
+
+        Returns
+        -------
+        NDArray[np.float64]
+            The combined drought modifier $\min(f_{sm}, f_{vpd})$.
+        """
+        # Retrieve PFT-specific sensitivities
+        theta_wp = self.pft_params.wilting_point
+        theta_ref = self.pft_params.field_capacity
+        gamma = self.pft_params.vpd_sensitivity
+        vpd_thresh = self.pft_params.vpd_threshold
+
+        f_sm = np.clip((soil_moisture - theta_wp) / (theta_ref - theta_wp), 0.0, 1.0)
+
+        # 2. VPD Stress (Exponential decay)
+        # gamma defines sensitivity. 0.0005 is a standard value for kPa-based Pa.
+        # If VPD is in Pa, gamma should be around 0.00005 to 0.0001
+        gamma = 0.0001
+        f_vpd = np.exp(
+            -gamma * np.maximum(vpd - vpd_thresh, 0)
+        )  # Threshold of 500Pa before stress starts
+
+        # 3. Combine using the Minimum (Liebig's Law)
+        # The most limiting factor dominates the plant's physiology
+        return np.minimum(f_sm, f_vpd)
 
     def compute_allocation_fractions(
         self,
