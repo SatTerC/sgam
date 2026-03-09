@@ -11,8 +11,10 @@ Classes:
 
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib.resources import files
 
 import numpy as np
+import tomllib
 
 
 class PlantFunctionalType(StrEnum):
@@ -133,88 +135,39 @@ class PftParams:
     vpd_sensitivity: float
 
 
-_PFT_PARAMS = {
-    PlantFunctionalType.TREE: PftParams(
-        leaf_base_allocation=0.25,
-        stem_base_allocation=0.45,
-        root_base_allocation=0.30,
-        leaf_turnover_rate=0.012,
-        stem_turnover_rate=0.0002,
-        root_turnover_rate=0.010,
-        leaf_maint_coeff=0.06,
-        stem_maint_coeff=0.005,
-        root_maint_coeff=0.03,
-        lue_max=2.5,
-        iwue_max=450.0,
-        disturbance_threshold=0.3,
-        disturbance_leaf_loss_frac=0.4,
-        leaf_carbon_area=60.0,
-        wilting_point=0.12,
-        field_capacity=0.35,
-        vpd_threshold=800.0,
-        vpd_sensitivity=0.0005,
-    ),
-    PlantFunctionalType.GRASS: PftParams(
-        leaf_base_allocation=0.45,
-        stem_base_allocation=0.10,
-        root_base_allocation=0.45,
-        leaf_turnover_rate=0.035,
-        stem_turnover_rate=0.015,
-        root_turnover_rate=0.025,
-        leaf_maint_coeff=0.09,
-        stem_maint_coeff=0.03,
-        root_maint_coeff=0.05,
-        lue_max=3.0,
-        iwue_max=350.0,
-        disturbance_threshold=0.2,
-        disturbance_leaf_loss_frac=0.9,
-        leaf_carbon_area=40.0,
-        wilting_point=0.08,
-        field_capacity=0.30,
-        vpd_threshold=500.0,
-        vpd_sensitivity=0.0008,
-    ),
-    PlantFunctionalType.SHRUB: PftParams(
-        leaf_base_allocation=0.20,
-        stem_base_allocation=0.40,
-        root_base_allocation=0.40,
-        leaf_turnover_rate=0.010,
-        stem_turnover_rate=0.002,
-        root_turnover_rate=0.010,
-        leaf_maint_coeff=0.07,
-        stem_maint_coeff=0.01,
-        root_maint_coeff=0.04,
-        lue_max=2.2,
-        iwue_max=650.0,
-        disturbance_threshold=0.25,
-        disturbance_leaf_loss_frac=0.5,
-        leaf_carbon_area=80.0,
-        wilting_point=0.05,
-        field_capacity=0.25,
-        vpd_threshold=1200.0,
-        vpd_sensitivity=0.0003,
-    ),
-    PlantFunctionalType.CROP: PftParams(
-        leaf_base_allocation=0.40,
-        stem_base_allocation=0.40,
-        root_base_allocation=0.20,
-        leaf_turnover_rate=0.050,
-        stem_turnover_rate=0.025,
-        root_turnover_rate=0.030,
-        leaf_maint_coeff=0.12,
-        stem_maint_coeff=0.05,
-        root_maint_coeff=0.07,
-        lue_max=4.2,
-        iwue_max=300.0,
-        disturbance_threshold=0.1,
-        disturbance_leaf_loss_frac=1.0,
-        leaf_carbon_area=35.0,
-        wilting_point=0.15,
-        field_capacity=0.40,
-        vpd_threshold=400.0,
-        vpd_sensitivity=0.0012,
-    ),
-}
+_PFT_PARAMS: dict[PlantFunctionalType, PftParams] | None = None
+
+
+def _load_pft_params() -> dict[PlantFunctionalType, PftParams]:
+    """Load PFT parameters from the default TOML configuration file."""
+    tomllib_data = tomllib.loads(
+        files("sgam.config").joinpath("pft_defaults.toml").read_text()
+    )
+
+    params = {}
+    for pft in PlantFunctionalType:
+        section = tomllib_data[pft.value]
+        params[pft] = PftParams(
+            leaf_base_allocation=section["leaf_base_allocation"],
+            stem_base_allocation=section["stem_base_allocation"],
+            root_base_allocation=section["root_base_allocation"],
+            leaf_turnover_rate=section["leaf_turnover_rate"],
+            stem_turnover_rate=section["stem_turnover_rate"],
+            root_turnover_rate=section["root_turnover_rate"],
+            leaf_maint_coeff=section["leaf_maint_coeff"],
+            stem_maint_coeff=section["stem_maint_coeff"],
+            root_maint_coeff=section["root_maint_coeff"],
+            lue_max=section["lue_max"],
+            iwue_max=section["iwue_max"],
+            disturbance_threshold=section["disturbance_threshold"],
+            disturbance_leaf_loss_frac=section["disturbance_leaf_loss_frac"],
+            leaf_carbon_area=section["leaf_carbon_area"],
+            wilting_point=section["wilting_point"],
+            field_capacity=section["field_capacity"],
+            vpd_threshold=section["vpd_threshold"],
+            vpd_sensitivity=section["vpd_sensitivity"],
+        )
+    return params
 
 
 def get_default_pft_params(pft: PlantFunctionalType) -> PftParams:
@@ -242,4 +195,7 @@ def get_default_pft_params(pft: PlantFunctionalType) -> PftParams:
         >>> print(params.leaf_base_allocation)
         0.05
     """
+    global _PFT_PARAMS
+    if _PFT_PARAMS is None:
+        _PFT_PARAMS = _load_pft_params()
     return _PFT_PARAMS[pft]
