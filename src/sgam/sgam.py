@@ -314,9 +314,9 @@ class SgamComponent:
             turnover_total = leaf_turnover + stem_turnover + root_turnover
 
             # Mass Update
-            curr_leaf_mass += leaf_growth - leaf_maint_resp - leaf_turnover
-            curr_stem_mass += stem_growth - stem_maint_resp - stem_turnover
-            curr_root_mass += root_growth - root_maint_resp - root_turnover
+            curr_leaf_mass += leaf_growth[w] - leaf_maint_resp - leaf_turnover
+            curr_stem_mass += stem_growth[w] - stem_maint_resp - stem_turnover
+            curr_root_mass += root_growth[w] - root_maint_resp - root_turnover
 
             # Apply disturbance
             disturbance_severity = disturbances[w]
@@ -364,7 +364,7 @@ class SgamComponent:
 
             # Aggregated litter flux for soil model
             litter_to_soil[w] = turnover_total + disturbance_mass
-            npp[w] = (leaf_growth + stem_growth + root_growth) - (
+            npp[w] = (leaf_growth[w] + stem_growth[w] + root_growth[w]) - (
                 leaf_maint_resp + stem_maint_resp + root_maint_resp
             )
 
