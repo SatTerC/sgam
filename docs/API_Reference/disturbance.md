@@ -1,0 +1,3 @@
+# `sgam.disturbance`
+
+::: sgam.disturbance
