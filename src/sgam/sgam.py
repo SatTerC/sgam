@@ -79,6 +79,8 @@ class SgamComponent:
         Returns:
             Drought modifier values.
         """
+        # NOTE: This is the old version. See non-underscored update below.
+        #
         # Calculate environmental stress thresholds from percentiles of input data
         # 25th percentile of soil moisture serves as moisture stress threshold
         # 75th percentile of VPD serves as maximum vapor pressure deficit threshold
@@ -243,46 +245,49 @@ class SgamComponent:
         stem_npp: float,
         root_npp: float,
         disturbance_severity: float,
-    ):
+    ) -> tuple[float, float, float, float]:
         # Natural Turnover (litterfall)
         leaf_turnover = leaf_pool_size * self.pft_params.leaf_turnover_rate
         stem_turnover = stem_pool_size * self.pft_params.stem_turnover_rate
         root_turnover = root_pool_size * self.pft_params.root_turnover_rate
 
-        # Usually disturbance losses will be zero
-        leaf_disturbance_loss, stem_disturbance_loss, root_disturbance_loss = (0, 0, 0)
+        # Compute "natural" mass update, i.e. in the absence of disturbances
+        Δ_leaf = leaf_npp - leaf_turnover
+        Δ_stem = stem_npp - stem_turnover
+        Δ_root = root_npp - root_turnover
+        Δ_litter = leaf_turnover + stem_turnover + root_turnover
 
-        # Check for and apply disturbance
-        if disturbance_severity > 0:
-            # Any severity > 0 is treated as a clear cut / harvest
-            if self.plant_type == PlantFunctionalType.CROP:
-                leaf_disturbance_loss = leaf_pool_size
-                stem_disturbance_loss = stem_pool_size
-                root_disturbance_loss = root_pool_size
+        if not (disturbance_severity > 0):  # no disturbances
+            return Δ_leaf, Δ_stem, Δ_root, Δ_litter
 
+        # Now we deal with cases of disturbances
+
+        if self.plant_type == PlantFunctionalType.CROP:
+            # Any severity > 0 is treated as a clear cut / harvest.
+            # Hence, pools are zeroed are disturbance loss = pool size.
+            Δ_leaf = -leaf_pool_size
+            Δ_stem = -stem_pool_size
+            Δ_root = -root_pool_size
+
+            # Leaf and stem carbon are assumed to have been removed;
+            # only root carbon joins the litter pool.
+            Δ_litter += root_pool_size
+
+            # NOTE: that carbon is not conserved here!
+
+        else:
             # Non-Crops: Partial removal based on severity * PFT sensitivity
-            else:
-                impact_frac = (
-                    disturbance_severity * self.pft_params.disturbance_leaf_loss_frac
-                )
-                leaf_disturbance_loss = leaf_pool_size * impact_frac
-                # NOTE: should stem_disturbance_loss be non-zero?
+            impact_frac = (
+                disturbance_severity * self.pft_params.disturbance_leaf_loss_frac
+            )
+            # NOTE: we use the "naturally" updated leaf_pool_size here to avoid disturbance losses greater than the pool size
+            leaf_disturbance_loss = (leaf_pool_size + Δ_leaf) * impact_frac
+            # NOTE: should stem_disturbance_loss be non-zero?
 
-        # Compute mass update
-        Δ_leaf_pool = leaf_npp - leaf_turnover - leaf_disturbance_loss
-        Δ_stem_pool = stem_npp - stem_turnover - stem_disturbance_loss
-        Δ_root_pool = root_npp - root_turnover - root_disturbance_loss
+            Δ_leaf -= leaf_disturbance_loss
+            Δ_litter += leaf_disturbance_loss
 
-        # Apply mass update, enforcing non-negative pools
-        leaf_pool_size += max(Δ_leaf_pool, -leaf_pool_size)
-        stem_pool_size += max(Δ_stem_pool, -stem_pool_size)
-        root_pool_size += max(Δ_root_pool, -root_pool_size)
-
-        return (
-            leaf_pool_size,
-            stem_pool_size,
-            root_pool_size,
-        )
+        return (Δ_leaf, Δ_stem, Δ_root, Δ_litter)
 
     def _forward(
         self,
@@ -298,17 +303,16 @@ class SgamComponent:
         leaf_pool_size = [leaf_pool_init]
         stem_pool_size = [stem_pool_init]
         root_pool_size = [root_pool_init]
+        litter_pool_size = [0.0]
 
-        # TODO: handle case of crop, should be init pools?
-
-        # Iterative Mass Balance
         leaf_pool = leaf_pool_init
         stem_pool = stem_pool_init
         root_pool = root_pool_init
+        litter_pool = 0.0
 
         n_weeks = len(leaf_npp)
         for t in range(n_weeks):
-            leaf_pool, stem_pool, root_pool = self._step_forward(
+            Δ_leaf, Δ_stem, Δ_root, Δ_litter = self._step_forward(
                 leaf_pool_size=leaf_pool,
                 stem_pool_size=stem_pool,
                 root_pool_size=root_pool,
@@ -317,11 +321,19 @@ class SgamComponent:
                 root_npp=root_npp[t],
                 disturbance_severity=disturbance_severity[t],
             )
+            leaf_pool += Δ_leaf
+            stem_pool += Δ_stem
+            root_pool += Δ_root
+            litter_pool += Δ_litter
+
             leaf_pool_size.append(leaf_pool)
             stem_pool_size.append(stem_pool)
             root_pool_size.append(root_pool)
+            litter_pool_size.append(litter_pool)
 
-        return np.stack([leaf_pool_size, stem_pool_size, root_pool_size])
+        return np.stack(
+            [leaf_pool_size, stem_pool_size, root_pool_size, litter_pool_size]
+        )
 
     def forward(
         self,
@@ -394,14 +406,16 @@ class SgamComponent:
         root_npp = root_gpp * carbon_use_efficiency
 
         # Run the forward model, iteratively updating the pool sizes
-        leaf_pool_size, stem_pool_size, root_pool_size = self._forward(
-            leaf_pool_init=leaf_pool_init,
-            stem_pool_init=stem_pool_init,
-            root_pool_init=root_pool_init,
-            leaf_npp=leaf_npp,
-            stem_npp=stem_npp,
-            root_npp=root_npp,
-            disturbance_severity=disturbances,
+        leaf_pool_size, stem_pool_size, root_pool_size, litter_pool_size = (
+            self._forward(
+                leaf_pool_init=leaf_pool_init,
+                stem_pool_init=stem_pool_init,
+                root_pool_init=root_pool_init,
+                leaf_npp=leaf_npp,
+                stem_npp=stem_npp,
+                root_npp=root_npp,
+                disturbance_severity=disturbances,
+            )
         )
 
         # Fluxes computed for each update/timestep rather than each time
@@ -417,28 +431,19 @@ class SgamComponent:
         stem_disturbance_loss = Δ_stem_pool - stem_npp - stem_turnover
         root_disturbance_loss = Δ_root_pool - root_npp - root_turnover
 
-        # TODO: logic for allocating disturbance losses to soil versus removal.
-        litter_to_soil = leaf_turnover = (
-            stem_turnover
-            + root_turnover
-            + self.allocate_disturbance_losses(
-                leaf_disturbance_loss, stem_disturbance_loss, root_disturbance_loss
-            )
-        )
-
         # TODO: return litter_to_soil (and maybe LAI) separately from pools and fluxes?
         # Maybe LAI should be entirely separate? Leaf carbon area is a pft param though.
         return {
             "leaf_pool_size": leaf_pool_size,
             "stem_pool_size": stem_pool_size,
             "root_pool_size": root_pool_size,
+            "litter_pool_size": litter_pool_size,
             "leaf_respiration": leaf_respiration,
             "stem_respiration": stem_respiration,
             "root_respiration": root_respiration,
             "leaf_disturbance_loss": leaf_disturbance_loss,
             "stem_disturbance_loss": stem_disturbance_loss,
             "root_disturbance_loss": root_disturbance_loss,
-            "litter_to_soil": litter_to_soil,
             "leaf_area_index": leaf_pool_size / self.pft_params.leaf_carbon_area,
         }
 
