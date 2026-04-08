@@ -222,20 +222,6 @@ class SgamComponent:
             dynamic_root / total_allocation,
         )
 
-    def partition_disturbance_losses(
-        self,
-        leaf_disturbance_loss: NDArray[np.float64],
-        stem_disturbance_loss: NDArray[np.float64],
-        root_disturbance_loss: NDArray[np.float64],
-        disturbance_severity: NDArray[np.float64],
-    ) -> NDArray[np.float64]:
-        if self.plant_type is PlantFunctionalType.CROP:
-            pass
-        else:
-            pass
-
-        return
-
     def _step_forward(
         self,
         leaf_pool_size: float,
