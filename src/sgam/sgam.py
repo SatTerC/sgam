@@ -1,7 +1,7 @@
 """
 SGAM (Simplified Growth/GPP Allocation Model) component.
 
-This module provides the SgamComponent class, which simulates the allocation
+This module provides the Sgam class, which simulates the allocation
 of gross primary productivity (GPP) to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size)
 across different plant types (tree, grass, crop, shrub), including turnover,
 respiration, and disturbance events.
@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 from .pft import PftParams, PlantFunctionalType, get_default_pft_params
 
 
-class SgamComponent:
+class Sgam:
     """The Simplified Growth/GPP Allocation Model (SGAM).
 
     Simulates the allocation of gross primary productivity (GPP) to plant

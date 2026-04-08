@@ -27,16 +27,16 @@ This will install a package called `sgam` into your environment.
 
 ## Basic usage
 
-`sgam` provides a class, `SgamComponent`, which provides the main user interface to the model implementation.
+`sgam` provides a class, `Sgam`, which provides the main user interface to the model implementation.
 
 ```python
-from sgam import SgamComponent
+from sgam import Sgam
 
 # To do
 params = ...
 forward_data = ...
 
-model = SgamComponent(**params)
+model = Sgam(**params)
 
 ```
 
