@@ -74,8 +74,8 @@ class TestForwardCropDisturbance:
             root_pool_init=5.0,
         )
 
-        assert result["leaf_pool_size"][3] == 0.0
-        assert result["disturbance_loss"][3] > 0.0
+        assert result["leaf_pool"][3] == 0.0
+        assert result["removed"][3] > 0.0
 
 
 class TestForwardTreeDisturbance:
@@ -106,8 +106,8 @@ class TestForwardTreeDisturbance:
             root_pool_init=5.0,
         )
 
-        assert result["leaf_pool_size"][3] < 5.0
-        assert result["leaf_pool_size"][3] > 0.0
+        assert result["leaf_pool"][3] < 5.0
+        assert result["leaf_pool"][3] > 0.0
 
 
 class TestForwardIntegration:
@@ -138,12 +138,6 @@ class TestForwardIntegration:
             root_pool_init=1.0,
         )
 
-        assert np.all(result["leaf_pool_size"] >= 0.0)
-        assert np.all(result["stem_pool_size"] >= 0.0)
-        assert np.all(result["root_pool_size"] >= 0.0)
-        assert np.all(result["leaf_area_index"] >= 0.0)
-        np.testing.assert_allclose(
-            result["leaf_area_index"],
-            result["leaf_pool_size"] / component.pft_params.leaf_carbon_area,
-            rtol=1e-10,
-        )
+        assert np.all(result["leaf_pool"] >= 0.0)
+        assert np.all(result["stem_pool"] >= 0.0)
+        assert np.all(result["root_pool"] >= 0.0)

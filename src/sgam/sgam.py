@@ -222,106 +222,7 @@ class SgamComponent:
             dynamic_root / total_allocation,
         )
 
-    def _step_forward(
-        self,
-        leaf_pool_size: float,
-        stem_pool_size: float,
-        root_pool_size: float,
-        leaf_npp: float,
-        stem_npp: float,
-        root_npp: float,
-        disturbance_severity: float,
-    ) -> tuple[float, float, float, float]:
-        # Natural Turnover (litterfall)
-        leaf_turnover = leaf_pool_size * self.pft_params.leaf_turnover_rate
-        stem_turnover = stem_pool_size * self.pft_params.stem_turnover_rate
-        root_turnover = root_pool_size * self.pft_params.root_turnover_rate
-
-        # Compute "natural" mass update, i.e. in the absence of disturbances
-        Δ_leaf = leaf_npp - leaf_turnover
-        Δ_stem = stem_npp - stem_turnover
-        Δ_root = root_npp - root_turnover
-        Δ_litter = leaf_turnover + stem_turnover + root_turnover
-
-        if not (disturbance_severity > 0):  # no disturbances
-            return Δ_leaf, Δ_stem, Δ_root, Δ_litter
-
-        # Now we deal with cases of disturbances
-
-        if self.plant_type == PlantFunctionalType.CROP:
-            # Any severity > 0 is treated as a clear cut / harvest.
-            # Hence, pools are zeroed are disturbance loss = pool size.
-            Δ_leaf = -leaf_pool_size
-            Δ_stem = -stem_pool_size
-            Δ_root = -root_pool_size
-
-            # Leaf and stem carbon are assumed to have been removed;
-            # only root carbon joins the litter pool.
-            Δ_litter += root_pool_size
-
-            # NOTE: that carbon is not conserved here!
-
-        else:
-            # Non-Crops: Partial removal based on severity * PFT sensitivity
-            impact_frac = (
-                disturbance_severity * self.pft_params.disturbance_leaf_loss_frac
-            )
-            # NOTE: we use the "naturally" updated leaf_pool_size here to avoid disturbance losses greater than the pool size
-            leaf_disturbance_loss = (leaf_pool_size + Δ_leaf) * impact_frac
-            # NOTE: should stem_disturbance_loss be non-zero?
-
-            Δ_leaf -= leaf_disturbance_loss
-            Δ_litter += leaf_disturbance_loss
-
-        return (Δ_leaf, Δ_stem, Δ_root, Δ_litter)
-
-    def _forward(
-        self,
-        leaf_pool_init: float,
-        stem_pool_init: float,
-        root_pool_init: float,
-        leaf_npp: NDArray[np.float64],
-        stem_npp: NDArray[np.float64],
-        root_npp: NDArray[np.float64],
-        disturbance_severity: NDArray[np.float64],
-    ) -> NDArray[np.float64]:
-        # Initialize output arrays
-        leaf_pool_size = [leaf_pool_init]
-        stem_pool_size = [stem_pool_init]
-        root_pool_size = [root_pool_init]
-        litter_pool_size = [0.0]
-
-        leaf_pool = leaf_pool_init
-        stem_pool = stem_pool_init
-        root_pool = root_pool_init
-        litter_pool = 0.0
-
-        n_weeks = len(leaf_npp)
-        for t in range(n_weeks):
-            Δ_leaf, Δ_stem, Δ_root, Δ_litter = self._step_forward(
-                leaf_pool_size=leaf_pool,
-                stem_pool_size=stem_pool,
-                root_pool_size=root_pool,
-                leaf_npp=leaf_npp[t],
-                stem_npp=stem_npp[t],
-                root_npp=root_npp[t],
-                disturbance_severity=disturbance_severity[t],
-            )
-            leaf_pool += Δ_leaf
-            stem_pool += Δ_stem
-            root_pool += Δ_root
-            litter_pool += Δ_litter
-
-            leaf_pool_size.append(leaf_pool)
-            stem_pool_size.append(stem_pool)
-            root_pool_size.append(root_pool)
-            litter_pool_size.append(litter_pool)
-
-        return np.stack(
-            [leaf_pool_size, stem_pool_size, root_pool_size, litter_pool_size]
-        )
-
-    def forward(
+    def partition_incoming_gpp(
         self,
         gpp: NDArray[np.float64],
         temperature: NDArray[np.float64],
@@ -330,40 +231,7 @@ class SgamComponent:
         lue: NDArray[np.float64],
         iwue: NDArray[np.float64],
         week_of_year: NDArray[np.float64],
-        disturbances: NDArray[np.float64],
-        leaf_pool_init: float,
-        stem_pool_init: float,
-        root_pool_init: float,
-    ) -> dict[str, NDArray]:
-        """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
-
-        The model operates on a weekly timestep using a discrete mass-balance:
-        1. GPP (mass) is allocated to tissues via fractions modified by weekly climate.
-        2. Growth Respiration is deducted via CUE (PFT-specific stress-scaling).
-        3. Maintenance Respiration and Turnover are deducted from existing biomass
-           using weekly coefficients stored in pft_params.
-        4. Disturbance removes biomass based on PFT: Crops are reset to zero (harvest),
-           while others lose a fraction of leaf biomass.
-        5. Litter to Soil is the sum of natural turnover and disturbance biomass.
-
-        Args:
-            gpp: Weekly total gross primary productivity (gC).
-            temperature: Weekly mean air temperature (degC).
-            soil_moisture: Weekly mean soil moisture content (normalized or mm).
-            vpd: Weekly mean vapor pressure deficit (Pa).
-            lue: Weekly mean light use efficiency (gC/MJ).
-            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
-            week_of_year: Weekly timestep index of the year (1-52).
-            disturbances: The maximum daily relative decline (0.0 to 1.0) observed
-                during the week. Values of 0.0 indicate no disturbance event.
-            leaf_pool_init: Initial leaf biomass pool size (gC).
-            stem_pool_init: Initial stem biomass pool size (gC).
-            root_pool_init: Initial root biomass pool size (gC).
-
-        Returns:
-            Carbon pools (gC), fluxes (gC), and diagnostics (LAI, NPP, CUE).
-        """
-
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         # Compute dynamic multipliers
         carbon_use_efficiency = self.compute_cue(lue, iwue)
 
@@ -391,47 +259,184 @@ class SgamComponent:
         stem_npp = stem_gpp * carbon_use_efficiency
         root_npp = root_gpp * carbon_use_efficiency
 
-        # Run the forward model, iteratively updating the pool sizes
-        leaf_pool_size, stem_pool_size, root_pool_size, litter_pool_size = (
-            self._forward(
-                leaf_pool_init=leaf_pool_init,
-                stem_pool_init=stem_pool_init,
-                root_pool_init=root_pool_init,
-                leaf_npp=leaf_npp,
-                stem_npp=stem_npp,
-                root_npp=root_npp,
-                disturbance_severity=disturbances,
-            )
+        return (
+            np.stack([leaf_respiration, stem_respiration, root_respiration]),
+            np.stack([leaf_npp, stem_npp, root_npp]),
         )
 
-        # Fluxes computed for each update/timestep rather than each time
-        leaf_turnover = leaf_pool_size[:-1] * self.pft_params.leaf_turnover_rate
-        stem_turnover = stem_pool_size[:-1] * self.pft_params.stem_turnover_rate
-        root_turnover = root_pool_size[:-1] * self.pft_params.root_turnover_rate
+    def _compute_disturbance_deltas(
+        self,
+        leaf_pool_size: float,
+        stem_pool_size: float,
+        root_pool_size: float,
+        disturbance_severity: float,
+    ) -> tuple[float, float, float, float, float]:
+        if self.plant_type == PlantFunctionalType.CROP:
+            # Any severity > 0 is treated as a clear cut / harvest.
+            # Hence, pools are zeroed are disturbance loss = pool size.
+            Δ_leaf = -leaf_pool_size
+            Δ_stem = -stem_pool_size
+            Δ_root = -root_pool_size
 
-        Δ_leaf_pool = leaf_pool_size[1:] - leaf_pool_size[:-1]
-        Δ_stem_pool = stem_pool_size[1:] - stem_pool_size[:-1]
-        Δ_root_pool = root_pool_size[1:] - root_pool_size[:-1]
+            # Leaf and stem carbon are assumed to have been removed;
+            # only root carbon joins the litter pool.
+            Δ_litter = root_pool_size
+            Δ_removed = leaf_pool_size + stem_pool_size
 
-        leaf_disturbance_loss = Δ_leaf_pool - leaf_npp - leaf_turnover
-        stem_disturbance_loss = Δ_stem_pool - stem_npp - stem_turnover
-        root_disturbance_loss = Δ_root_pool - root_npp - root_turnover
+        else:
+            # TODO: this only models grazing (I think) - needs work!
+            impact_frac = (
+                disturbance_severity * self.pft_params.disturbance_leaf_loss_frac
+            )
+            leaf_disturbance_loss = leaf_pool_size * impact_frac
 
-        # TODO: return litter_to_soil (and maybe LAI) separately from pools and fluxes?
-        # Maybe LAI should be entirely separate? Leaf carbon area is a pft param though.
-        return {
-            "leaf_pool_size": leaf_pool_size,
-            "stem_pool_size": stem_pool_size,
-            "root_pool_size": root_pool_size,
-            "litter_pool_size": litter_pool_size,
-            "leaf_respiration": leaf_respiration,
-            "stem_respiration": stem_respiration,
-            "root_respiration": root_respiration,
-            "leaf_disturbance_loss": leaf_disturbance_loss,
-            "stem_disturbance_loss": stem_disturbance_loss,
-            "root_disturbance_loss": root_disturbance_loss,
-            "leaf_area_index": leaf_pool_size / self.pft_params.leaf_carbon_area,
-        }
+            Δ_leaf = -leaf_disturbance_loss
+            Δ_litter = leaf_disturbance_loss
+            Δ_stem, Δ_root, Δ_removed = 0.0, 0.0, 0.0
+
+        return (Δ_leaf, Δ_stem, Δ_root, Δ_litter, Δ_removed)
+
+    def _forward(
+        self,
+        leaf_pool_init: float,
+        stem_pool_init: float,
+        root_pool_init: float,
+        leaf_npp: NDArray[np.float64],
+        stem_npp: NDArray[np.float64],
+        root_npp: NDArray[np.float64],
+        disturbance_severity: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        leaf_pool_series = []
+        stem_pool_series = []
+        root_pool_series = []
+        litter_pool_series = []
+        removed_series = []
+
+        leaf_pool = leaf_pool_init
+        stem_pool = stem_pool_init
+        root_pool = root_pool_init
+        litter_pool = 0.0
+        removed = 0.0
+
+        n_weeks = len(leaf_npp)
+        for t in range(n_weeks):
+            # Natural turnover (litterfall) is proportional to pool size
+            # (constant decay rate -> exponential decay)
+            leaf_turnover = leaf_pool * self.pft_params.leaf_turnover_rate
+            stem_turnover = stem_pool * self.pft_params.stem_turnover_rate
+            root_turnover = root_pool * self.pft_params.root_turnover_rate
+
+            # Compute "natural" mass update, i.e. in the absence of disturbances
+            Δ_leaf = leaf_npp[t] - leaf_turnover
+            Δ_stem = stem_npp[t] - stem_turnover
+            Δ_root = root_npp[t] - root_turnover
+            Δ_litter = leaf_turnover + stem_turnover + root_turnover
+
+            leaf_pool += Δ_leaf
+            stem_pool += Δ_stem
+            root_pool += Δ_root
+            litter_pool += Δ_litter
+
+            if disturbance_severity[t] > 0:
+                Δ_leaf, Δ_stem, Δ_root, Δ_litter, Δ_removed = (
+                    self._compute_disturbance_deltas(
+                        leaf_pool_size=leaf_pool,
+                        stem_pool_size=stem_pool,
+                        root_pool_size=root_pool,
+                        disturbance_severity=disturbance_severity[t],
+                    )
+                )
+                leaf_pool += Δ_leaf
+                stem_pool += Δ_stem
+                root_pool += Δ_root
+                litter_pool += Δ_litter
+                removed += Δ_removed
+
+            leaf_pool_series.append(leaf_pool)
+            stem_pool_series.append(stem_pool)
+            root_pool_series.append(root_pool)
+            litter_pool_series.append(litter_pool)
+            removed_series.append(removed)
+
+        return np.stack(
+            [
+                leaf_pool_series,
+                stem_pool_series,
+                root_pool_series,
+                litter_pool_series,
+                removed_series,
+            ]
+        )
+
+    def forward(
+        self,
+        gpp: NDArray[np.float64],
+        temperature: NDArray[np.float64],
+        soil_moisture: NDArray[np.float64],
+        vpd: NDArray[np.float64],
+        lue: NDArray[np.float64],
+        iwue: NDArray[np.float64],
+        week_of_year: NDArray[np.float64],
+        disturbances: NDArray[np.float64],
+        leaf_pool_init: float,
+        stem_pool_init: float,
+        root_pool_init: float,
+    ) -> dict[str, NDArray]:
+        """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
+
+        Args:
+            gpp: Weekly total gross primary productivity (gC).
+            temperature: Weekly mean air temperature (degC).
+            soil_moisture: Weekly mean soil moisture content (normalized or mm).
+            vpd: Weekly mean vapor pressure deficit (Pa).
+            lue: Weekly mean light use efficiency (gC/MJ).
+            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
+            week_of_year: Weekly timestep index of the year (1-52).
+            disturbances: The maximum daily relative decline (0.0 to 1.0) observed
+                during the week. Values of 0.0 indicate no disturbance event.
+            leaf_pool_init: Initial leaf biomass pool size (gC).
+            stem_pool_init: Initial stem biomass pool size (gC).
+            root_pool_init: Initial root biomass pool size (gC).
+
+        Returns:
+            Carbon pools (gC), fluxes (gC), and diagnostics (LAI, NPP, CUE).
+        """
+
+        respiration, npp = self.partition_incoming_gpp(
+            gpp=gpp,
+            temperature=temperature,
+            soil_moisture=soil_moisture,
+            vpd=vpd,
+            lue=lue,
+            iwue=iwue,
+            week_of_year=week_of_year,
+        )
+
+        leaf_npp, stem_npp, root_npp = npp
+
+        # Run the forward model, iteratively updating the pool sizes
+        pools = self._forward(
+            leaf_pool_init=leaf_pool_init,
+            stem_pool_init=stem_pool_init,
+            root_pool_init=root_pool_init,
+            leaf_npp=leaf_npp,
+            stem_npp=stem_npp,
+            root_npp=root_npp,
+            disturbance_severity=disturbances,
+        )
+
+        leaf_pool, stem_pool, root_pool, litter_pool, removed = pools
+
+        # TODO: decide whether to re-compute turnover and disturbance deltas here,
+        # or accumulate them in _forward. They probably should be returned alongside pools.
+
+        return dict(
+            leaf_pool=leaf_pool,
+            stem_pool=stem_pool,
+            root_pool=root_pool,
+            litter_pool=litter_pool,
+            removed=removed,
+        )
 
     def __call__(
         self,
