@@ -10,7 +10,7 @@ respiration, and disturbance events.
 import numpy as np
 from numpy.typing import NDArray
 
-from .pft import PlantFunctionalType, get_default_pft_params
+from .pft import PftParams, PlantFunctionalType, get_default_pft_params
 
 
 class SgamComponent:
@@ -25,6 +25,11 @@ class SgamComponent:
 
     Args:
         plant_type: Type of plant (tree, grass, crop, or shrub).
+        pft_params: Optional custom PFT parameters. If None, uses defaults
+            for the specified plant_type.
+        use_dynamic_allocation: If True (default), allocation fractions
+            vary with environmental conditions (temperature, moisture, VPD).
+            If False, use fixed base allocations from pft_params.
 
     Todo:
         - Refine crop modelling --> growing_season_limit necessary ?
@@ -35,9 +40,14 @@ class SgamComponent:
     def __init__(
         self,
         plant_type: PlantFunctionalType,
+        pft_params: PftParams | None = None,
+        use_dynamic_allocation: bool = True,
     ):
         self.plant_type = plant_type
-        self.pft_params = get_default_pft_params(plant_type)
+        self.pft_params = (
+            pft_params if pft_params is not None else get_default_pft_params(plant_type)
+        )
+        self.use_dynamic_allocation = use_dynamic_allocation
 
     def compute_cue(self, lue: NDArray, iwue: NDArray) -> NDArray:
         """Compute carbon use efficiency (CUE) from light use efficiency and
@@ -159,18 +169,35 @@ class SgamComponent:
         soil_moisture: NDArray[np.float64],
         vpd: NDArray[np.float64],
         week_of_year: NDArray[np.float64],
+        use_dynamic_allocation: bool | None = None,
     ) -> tuple[NDArray, NDArray, NDArray]:
-        """Compute dynamic carbon allocation fractions for leaf, stem, and root pools.
+        """Compute carbon allocation fractions for leaf, stem, and root pools.
 
         Args:
             temperature: Weekly mean air temperature (degC).
             soil_moisture: Weekly mean soil moisture content (normalized or mm).
             vpd: Weekly mean vapor pressure deficit (Pa).
             week_of_year: The week number of the simulation year (1 to 52).
+            use_dynamic_allocation: If True, allocation varies with environmental
+                conditions. If False, returns normalized base allocations.
+                Defaults to self.use_dynamic_allocation.
 
         Returns:
             Allocation fractions for (leaf, stem, root), summing to 1.0.
         """
+        if use_dynamic_allocation is None:
+            use_dynamic_allocation = self.use_dynamic_allocation
+
+        if not use_dynamic_allocation:
+            # NOTE: if falling back on non-dynamic allocations we don't need any input
+            # data, but I don't know if it's worth bothering to actually implement this;
+            # static allocations should be a sanity check rather than a supported option.
+            leaf = np.full_like(temperature, self.pft_params.leaf_base_allocation)
+            stem = np.full_like(temperature, self.pft_params.stem_base_allocation)
+            root = np.full_like(temperature, self.pft_params.root_base_allocation)
+            total = leaf + stem + root
+            return (leaf / total, stem / total, root / total)
+
         # 1. Seasonality Modifier
         # Peak allocation to leaves occurs around the summer solstice (Week 26).
         # Shifted by 12 weeks so the sine wave begins its climb in spring.

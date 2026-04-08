@@ -57,19 +57,7 @@ class PftParams:
             during growth. Represents the root mass fraction (RMF).
         leaf_turnover_rate: Fraction of leaf biomass replaced per week (weeks^-1^).
         stem_turnover_rate: Fraction of stem biomass replaced per week (weeks^-1^).
-        root_tunover_rate: Fraction of root biomass replaced per week (weeks^-1^).
-        leaf_maint_coeff: Fraction of leaf carbon respired per week (weeks^-1^)
-            for maintenance metabolism. This is the highest cost across all
-            PFTs as leaves require constant enzyme maintenance. Crops have
-            the highest values (0.14) meaning 14% of leaf carbon is burned
-            weekly without GPP.
-        stem_maint_coeff: Fraction of stem carbon respired per week (weeks^-1^)
-            for maintenance metabolism. Lower for trees and shrubs due to
-            lignified, metabolically inactive wood; higher for grasses and
-            crops with succulent, active stems.
-        root_maint_coeff: Fraction of root carbon respired per week (weeks^-1^)
-            for maintenance metabolism. Reflects the metabolic cost of
-            maintaining fine root systems for water and nutrient uptake.
+        root_turnover_rate: Fraction of root biomass replaced per week (weeks^-1^).
         lue_max: Maximum light use efficiency (gC MJ^-1^). Represents the
             maximum rate of carbon gain per unit of absorbed light. Crops
             have the highest values due to C4 photosynthesis and optimized
@@ -79,6 +67,9 @@ class PftParams:
             Represents the maximum ratio of photosynthesis to stomatal
             conductance. Shrubs have the highest values to maintain
             photosynthesis under extreme water tension.
+        disturbance_threshold: Threshold for disturbance detection (fraction).
+        disturbance_leaf_loss_frac: Fraction of leaf pool lost per unit
+            disturbance severity.
         leaf_carbon_area: Specific leaf area expressed as carbon content
             per unit leaf area (gC/m²).
         wilting_point: Soil moisture (fraction, 0.0-1.0) at which plant
@@ -114,11 +105,6 @@ class PftParams:
     leaf_turnover_rate: float
     stem_turnover_rate: float
     root_turnover_rate: float
-
-    # Weekly maintenance coefficients (metabolic cost per unit biomass)
-    leaf_maint_coeff: float
-    stem_maint_coeff: float
-    root_maint_coeff: float
 
     # Efficiency thresholds
     lue_max: float  # gC / MJ
@@ -157,9 +143,6 @@ def _load_pft_params() -> dict[PlantFunctionalType, PftParams]:
             leaf_turnover_rate=section["leaf_turnover_rate"],
             stem_turnover_rate=section["stem_turnover_rate"],
             root_turnover_rate=section["root_turnover_rate"],
-            leaf_maint_coeff=section["leaf_maint_coeff"],
-            stem_maint_coeff=section["stem_maint_coeff"],
-            root_maint_coeff=section["root_maint_coeff"],
             lue_max=section["lue_max"],
             iwue_max=section["iwue_max"],
             disturbance_threshold=section["disturbance_threshold"],
