@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "sgam"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Simplified Growth and Allocation Model (SGAM) for the allocation of gross primary productivity (GPP) to plant carbon pools across different plant types."
 readme = "README.md"
 authors = [
