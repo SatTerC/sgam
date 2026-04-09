@@ -1,7 +1,7 @@
 """
 SGAM (Simplified Growth/GPP Allocation Model) component.
 
-This module provides the SgamComponent class, which simulates the allocation
+This module provides the Sgam class, which simulates the allocation
 of gross primary productivity (GPP) to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size)
 across different plant types (tree, grass, crop, shrub), including turnover,
 respiration, and disturbance events.
@@ -10,10 +10,10 @@ respiration, and disturbance events.
 import numpy as np
 from numpy.typing import NDArray
 
-from .pft import PlantFunctionalType, get_default_pft_params
+from .pft import PftParams, PlantFunctionalType, get_default_pft_params
 
 
-class SgamComponent:
+class Sgam:
     """The Simplified Growth/GPP Allocation Model (SGAM).
 
     Simulates the allocation of gross primary productivity (GPP) to plant
@@ -25,6 +25,11 @@ class SgamComponent:
 
     Args:
         plant_type: Type of plant (tree, grass, crop, or shrub).
+        pft_params: Optional custom PFT parameters. If None, uses defaults
+            for the specified plant_type.
+        use_dynamic_allocation: If True (default), allocation fractions
+            vary with environmental conditions (temperature, moisture, VPD).
+            If False, use fixed base allocations from pft_params.
 
     Todo:
         - Refine crop modelling --> growing_season_limit necessary ?
@@ -35,9 +40,14 @@ class SgamComponent:
     def __init__(
         self,
         plant_type: PlantFunctionalType,
+        pft_params: PftParams | None = None,
+        use_dynamic_allocation: bool = True,
     ):
         self.plant_type = plant_type
-        self.pft_params = get_default_pft_params(plant_type)
+        self.pft_params = (
+            pft_params if pft_params is not None else get_default_pft_params(plant_type)
+        )
+        self.use_dynamic_allocation = use_dynamic_allocation
 
     def compute_cue(self, lue: NDArray, iwue: NDArray) -> NDArray:
         """Compute carbon use efficiency (CUE) from light use efficiency and
@@ -79,6 +89,8 @@ class SgamComponent:
         Returns:
             Drought modifier values.
         """
+        # NOTE: This is the old version. See non-underscored update below.
+        #
         # Calculate environmental stress thresholds from percentiles of input data
         # 25th percentile of soil moisture serves as moisture stress threshold
         # 75th percentile of VPD serves as maximum vapor pressure deficit threshold
@@ -157,18 +169,35 @@ class SgamComponent:
         soil_moisture: NDArray[np.float64],
         vpd: NDArray[np.float64],
         week_of_year: NDArray[np.float64],
+        use_dynamic_allocation: bool | None = None,
     ) -> tuple[NDArray, NDArray, NDArray]:
-        """Compute dynamic carbon allocation fractions for leaf, stem, and root pools.
+        """Compute carbon allocation fractions for leaf, stem, and root pools.
 
         Args:
             temperature: Weekly mean air temperature (degC).
             soil_moisture: Weekly mean soil moisture content (normalized or mm).
             vpd: Weekly mean vapor pressure deficit (Pa).
             week_of_year: The week number of the simulation year (1 to 52).
+            use_dynamic_allocation: If True, allocation varies with environmental
+                conditions. If False, returns normalized base allocations.
+                Defaults to self.use_dynamic_allocation.
 
         Returns:
             Allocation fractions for (leaf, stem, root), summing to 1.0.
         """
+        if use_dynamic_allocation is None:
+            use_dynamic_allocation = self.use_dynamic_allocation
+
+        if not use_dynamic_allocation:
+            # NOTE: if falling back on non-dynamic allocations we don't need any input
+            # data, but I don't know if it's worth bothering to actually implement this;
+            # static allocations should be a sanity check rather than a supported option.
+            leaf = np.full_like(temperature, self.pft_params.leaf_base_allocation)
+            stem = np.full_like(temperature, self.pft_params.stem_base_allocation)
+            root = np.full_like(temperature, self.pft_params.root_base_allocation)
+            total = leaf + stem + root
+            return (leaf / total, stem / total, root / total)
+
         # 1. Seasonality Modifier
         # Peak allocation to leaves occurs around the summer solstice (Week 26).
         # Shifted by 12 weeks so the sine wave begins its climb in spring.
@@ -220,6 +249,152 @@ class SgamComponent:
             dynamic_root / total_allocation,
         )
 
+    def partition_incoming_gpp(
+        self,
+        gpp: NDArray[np.float64],
+        temperature: NDArray[np.float64],
+        soil_moisture: NDArray[np.float64],
+        vpd: NDArray[np.float64],
+        lue: NDArray[np.float64],
+        iwue: NDArray[np.float64],
+        week_of_year: NDArray[np.float64],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        # Compute dynamic multipliers
+        carbon_use_efficiency = self.compute_cue(lue, iwue)
+
+        (
+            leaf_allocation_fraction,
+            stem_allocation_fraction,
+            root_allocation_fraction,
+        ) = self.compute_allocation_fractions(
+            temperature,
+            soil_moisture,
+            vpd,
+            week_of_year,
+        )
+
+        # Partition incoming GPP between leaf, stem, root pools
+        leaf_gpp = gpp * leaf_allocation_fraction
+        stem_gpp = gpp * stem_allocation_fraction
+        root_gpp = gpp * root_allocation_fraction
+
+        # Partition each pool's GPP between *potential* growth (NPP) and autotrophic respiration (Ra)
+        leaf_respiration = leaf_gpp * (1 - carbon_use_efficiency)
+        stem_respiration = stem_gpp * (1 - carbon_use_efficiency)
+        root_respiration = root_gpp * (1 - carbon_use_efficiency)
+        leaf_npp = leaf_gpp * carbon_use_efficiency
+        stem_npp = stem_gpp * carbon_use_efficiency
+        root_npp = root_gpp * carbon_use_efficiency
+
+        return (
+            np.stack([leaf_respiration, stem_respiration, root_respiration]),
+            np.stack([leaf_npp, stem_npp, root_npp]),
+        )
+
+    def _compute_disturbance_deltas(
+        self,
+        leaf_pool_size: float,
+        stem_pool_size: float,
+        root_pool_size: float,
+        disturbance_severity: float,
+    ) -> tuple[float, float, float, float, float]:
+        if self.plant_type == PlantFunctionalType.CROP:
+            # Any severity > 0 is treated as a clear cut / harvest.
+            # Hence, pools are zeroed are disturbance loss = pool size.
+            Δ_leaf = -leaf_pool_size
+            Δ_stem = -stem_pool_size
+            Δ_root = -root_pool_size
+
+            # Leaf and stem carbon are assumed to have been removed;
+            # only root carbon joins the litter pool.
+            Δ_litter = root_pool_size
+            Δ_removed = leaf_pool_size + stem_pool_size
+
+        else:
+            # TODO: this only models grazing (I think) - needs work!
+            impact_frac = (
+                disturbance_severity * self.pft_params.disturbance_leaf_loss_frac
+            )
+            leaf_disturbance_loss = leaf_pool_size * impact_frac
+
+            Δ_leaf = -leaf_disturbance_loss
+            Δ_litter = leaf_disturbance_loss
+            Δ_stem, Δ_root, Δ_removed = 0.0, 0.0, 0.0
+
+        return (Δ_leaf, Δ_stem, Δ_root, Δ_litter, Δ_removed)
+
+    def _forward(
+        self,
+        leaf_pool_init: float,
+        stem_pool_init: float,
+        root_pool_init: float,
+        leaf_npp: NDArray[np.float64],
+        stem_npp: NDArray[np.float64],
+        root_npp: NDArray[np.float64],
+        disturbance_severity: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        leaf_pool_series = []
+        stem_pool_series = []
+        root_pool_series = []
+        litter_pool_series = []
+        removed_series = []
+
+        leaf_pool = leaf_pool_init
+        stem_pool = stem_pool_init
+        root_pool = root_pool_init
+        litter_pool = 0.0
+        removed = 0.0
+
+        n_weeks = len(leaf_npp)
+        for t in range(n_weeks):
+            # Natural turnover (litterfall) is proportional to pool size
+            # (constant decay rate -> exponential decay)
+            leaf_turnover = leaf_pool * self.pft_params.leaf_turnover_rate
+            stem_turnover = stem_pool * self.pft_params.stem_turnover_rate
+            root_turnover = root_pool * self.pft_params.root_turnover_rate
+
+            # Compute "natural" mass update, i.e. in the absence of disturbances
+            Δ_leaf = leaf_npp[t] - leaf_turnover
+            Δ_stem = stem_npp[t] - stem_turnover
+            Δ_root = root_npp[t] - root_turnover
+            Δ_litter = leaf_turnover + stem_turnover + root_turnover
+
+            leaf_pool += Δ_leaf
+            stem_pool += Δ_stem
+            root_pool += Δ_root
+            litter_pool += Δ_litter
+
+            if disturbance_severity[t] > 0:
+                Δ_leaf, Δ_stem, Δ_root, Δ_litter, Δ_removed = (
+                    self._compute_disturbance_deltas(
+                        leaf_pool_size=leaf_pool,
+                        stem_pool_size=stem_pool,
+                        root_pool_size=root_pool,
+                        disturbance_severity=disturbance_severity[t],
+                    )
+                )
+                leaf_pool += Δ_leaf
+                stem_pool += Δ_stem
+                root_pool += Δ_root
+                litter_pool += Δ_litter
+                removed += Δ_removed
+
+            leaf_pool_series.append(leaf_pool)
+            stem_pool_series.append(stem_pool)
+            root_pool_series.append(root_pool)
+            litter_pool_series.append(litter_pool)
+            removed_series.append(removed)
+
+        return np.stack(
+            [
+                leaf_pool_series,
+                stem_pool_series,
+                root_pool_series,
+                litter_pool_series,
+                removed_series,
+            ]
+        )
+
     def forward(
         self,
         gpp: NDArray[np.float64],
@@ -235,15 +410,6 @@ class SgamComponent:
         root_pool_init: float,
     ) -> dict[str, NDArray]:
         """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
-
-        The model operates on a weekly timestep using a discrete mass-balance:
-        1. GPP (mass) is allocated to tissues via fractions modified by weekly climate.
-        2. Growth Respiration is deducted via CUE (PFT-specific stress-scaling).
-        3. Maintenance Respiration and Turnover are deducted from existing biomass
-           using weekly coefficients stored in pft_params.
-        4. Disturbance removes biomass based on PFT: Crops are reset to zero (harvest),
-           while others lose a fraction of leaf biomass.
-        5. Litter to Soil is the sum of natural turnover and disturbance biomass.
 
         Args:
             gpp: Weekly total gross primary productivity (gC).
@@ -262,125 +428,42 @@ class SgamComponent:
         Returns:
             Carbon pools (gC), fluxes (gC), and diagnostics (LAI, NPP, CUE).
         """
-        n_weeks = len(gpp)
 
-        # Compute dynamic multipliers
-        carbon_use_efficiency = self.compute_cue(lue, iwue)
-
-        (
-            leaf_allocation_fraction,
-            stem_allocation_fraction,
-            root_allocation_fraction,
-        ) = self.compute_allocation_fractions(
-            temperature,
-            soil_moisture,
-            vpd,
-            week_of_year,
+        respiration, npp = self.partition_incoming_gpp(
+            gpp=gpp,
+            temperature=temperature,
+            soil_moisture=soil_moisture,
+            vpd=vpd,
+            lue=lue,
+            iwue=iwue,
+            week_of_year=week_of_year,
         )
 
-        # Pre-compute NPP Gains (GPP * Allocation * CUE)
-        # This accounts for Growth Respiration implicitly
-        leaf_growth = gpp * leaf_allocation_fraction * carbon_use_efficiency
-        stem_growth = gpp * stem_allocation_fraction * carbon_use_efficiency
-        root_growth = gpp * root_allocation_fraction * carbon_use_efficiency
+        leaf_npp, stem_npp, root_npp = npp
 
-        # Initialize output arrays
-        leaf_pool_size = np.zeros(n_weeks)
-        stem_pool_size = np.zeros(n_weeks)
-        root_pool_size = np.zeros(n_weeks)
-        leaf_respiration_loss = np.zeros(n_weeks)
-        stem_respiration_loss = np.zeros(n_weeks)
-        root_respiration_loss = np.zeros(n_weeks)
-        turnover_loss = np.zeros(n_weeks)
-        disturbance_loss = np.zeros(n_weeks)
-        litter_to_soil = np.zeros(n_weeks)
-        npp = np.zeros(n_weeks)
+        # Run the forward model, iteratively updating the pool sizes
+        pools = self._forward(
+            leaf_pool_init=leaf_pool_init,
+            stem_pool_init=stem_pool_init,
+            root_pool_init=root_pool_init,
+            leaf_npp=leaf_npp,
+            stem_npp=stem_npp,
+            root_npp=root_npp,
+            disturbance_severity=disturbances,
+        )
 
-        # Iterative Mass Balance
-        curr_leaf_mass = leaf_pool_init
-        curr_stem_mass = stem_pool_init
-        curr_root_mass = root_pool_init
+        leaf_pool, stem_pool, root_pool, litter_pool, removed = pools
 
-        for w in range(n_weeks):
-            # Maintenance Respiration (Rm)
-            leaf_maint_resp = curr_leaf_mass * self.pft_params.leaf_maint_coeff
-            stem_maint_resp = curr_stem_mass * self.pft_params.stem_maint_coeff
-            root_maint_resp = curr_root_mass * self.pft_params.root_maint_coeff
+        # TODO: decide whether to re-compute turnover and disturbance deltas here,
+        # or accumulate them in _forward. They probably should be returned alongside pools.
 
-            # Natural Turnover (Litterfall)
-            leaf_turnover = curr_leaf_mass * self.pft_params.leaf_turnover_rate
-            stem_turnover = curr_stem_mass * self.pft_params.stem_turnover_rate
-            root_turnover = curr_root_mass * self.pft_params.root_turnover_rate
-            turnover_total = leaf_turnover + stem_turnover + root_turnover
-
-            # Mass Update
-            curr_leaf_mass += leaf_growth[w] - leaf_maint_resp - leaf_turnover
-            curr_stem_mass += stem_growth[w] - stem_maint_resp - stem_turnover
-            curr_root_mass += root_growth[w] - root_maint_resp - root_turnover
-
-            # Apply disturbance
-            disturbance_severity = disturbances[w]
-            if disturbance_severity > 0:
-                if self.plant_type == PlantFunctionalType.CROP:
-                    # Any severity > 0 is treated as a clear cut / harvest
-                    disturbance_mass = curr_leaf_mass + curr_stem_mass + curr_root_mass
-
-                    curr_leaf_mass, curr_stem_mass, curr_root_mass = (0.0, 0.0, 0.0)
-                else:
-                    # Non-Crops: Partial removal based on severity * PFT sensitivity
-                    impact_frac = (
-                        disturbance_severity
-                        * self.pft_params.disturbance_leaf_loss_frac
-                    )
-                    disturbance_mass = curr_leaf_mass * impact_frac
-
-                    curr_leaf_mass -= disturbance_mass
-            else:
-                disturbance_mass = 0.0
-
-            # Ensure pools stay non-negative
-            curr_leaf_mass = np.maximum(curr_leaf_mass, 0.0)
-            curr_stem_mass = np.maximum(curr_stem_mass, 0.0)
-            curr_root_mass = np.maximum(curr_root_mass, 0.0)
-
-            # Recording and Diagnostics
-            leaf_pool_size[w] = curr_leaf_mass
-            stem_pool_size[w] = curr_stem_mass
-            root_pool_size[w] = curr_root_mass
-
-            # Ra = Growth Respiration + Maintenance Respiration
-            leaf_respiration_loss[w] = (
-                gpp[w] * leaf_allocation_fraction[w] * (1 - carbon_use_efficiency[w])
-            ) + leaf_maint_resp
-            stem_respiration_loss[w] = (
-                gpp[w] * stem_allocation_fraction[w] * (1 - carbon_use_efficiency[w])
-            ) + stem_maint_resp
-            root_respiration_loss[w] = (
-                gpp[w] * root_allocation_fraction[w] * (1 - carbon_use_efficiency[w])
-            ) + root_maint_resp
-
-            turnover_loss[w] = turnover_total
-            disturbance_loss[w] = disturbance_mass
-
-            # Aggregated litter flux for soil model
-            litter_to_soil[w] = turnover_total + disturbance_mass
-            npp[w] = (leaf_growth[w] + stem_growth[w] + root_growth[w]) - (
-                leaf_maint_resp + stem_maint_resp + root_maint_resp
-            )
-
-        return {
-            "leaf_pool_size": leaf_pool_size,
-            "stem_pool_size": stem_pool_size,
-            "root_pool_size": root_pool_size,
-            "leaf_respiration_loss": leaf_respiration_loss,
-            "stem_respiration_loss": stem_respiration_loss,
-            "root_respiration_loss": root_respiration_loss,
-            "litter_to_soil": litter_to_soil,
-            "disturbance_loss": disturbance_loss,
-            "leaf_area_index": leaf_pool_size / self.pft_params.leaf_carbon_area,
-            "npp": npp,
-            "cue": carbon_use_efficiency,
-        }
+        return dict(
+            leaf_pool=leaf_pool,
+            stem_pool=stem_pool,
+            root_pool=root_pool,
+            litter_pool=litter_pool,
+            removed=removed,
+        )
 
     def __call__(
         self,
