@@ -179,9 +179,7 @@ class TestDynamicAllocationToggle:
         assert component.use_dynamic_allocation is True
 
     def test_static_allocation_mode(self):
-        component = Sgam(
-            PlantFunctionalType.TREE, use_dynamic_allocation=False
-        )
+        component = Sgam(PlantFunctionalType.TREE, use_dynamic_allocation=False)
         assert component.use_dynamic_allocation is False
 
         temperature = np.array([20.0, 30.0])
@@ -220,9 +218,7 @@ class TestDynamicAllocationToggle:
         assert not np.allclose(leaf[0], leaf[1], rtol=1e-10)
 
     def test_override_dynamic_allocation_at_call_time(self):
-        component = Sgam(
-            PlantFunctionalType.TREE, use_dynamic_allocation=False
-        )
+        component = Sgam(PlantFunctionalType.TREE, use_dynamic_allocation=False)
 
         temperature = np.array([20.0, 30.0])
         soil_moisture = np.array([0.5, 0.5])

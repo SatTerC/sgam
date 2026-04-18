@@ -7,6 +7,8 @@ across different plant types (tree, grass, crop, shrub), including turnover,
 respiration, and disturbance events.
 """
 
+import warnings
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -76,7 +78,11 @@ class SgamDiagnostics:
 
 @dataclass
 class SgamOutput:
-    """Full model output containing pools, fluxes, and diagnostics."""
+    """Full model output containing pools, fluxes, and diagnostics.
+
+    Validates mass balance in __post_init__, issuing a warning if violated
+    rather than raising an error to allow for downstream use.
+    """
 
     pools: SgamPools
     npp: SgamNPP
@@ -84,6 +90,73 @@ class SgamOutput:
     respiration: SgamRespiration
     disturbance: SgamDisturbance
     diagnostics: SgamDiagnostics
+
+    def __post_init__(self):
+        """Validate mass balance in post-init, issue warning if violated."""
+        if not self._validate_mass_balance():
+            warnings.warn("Mass balance violation detected")
+
+    def _validate_mass_balance(self, rtol: float = 1e-6) -> bool:
+        """Check per-timestep mass balance.
+
+        At each timestep t > 0:
+            pools[t] = pools[t-1] + npp[t] - turnover[t] - disturbance[t]
+
+        Note: Respiration is already accounted for in NPP (NPP = GPP - respiration),
+        so it is not subtracted again here.
+
+        Args:
+            rtol: Relative tolerance for float comparison.
+
+        Returns:
+            True if mass balance is conserved, False otherwise.
+        """
+        n = len(self.pools.leaf)
+        if n < 2:
+            return True
+
+        pools_prev = np.stack(
+            [
+                self.pools.leaf[:-1],
+                self.pools.stem[:-1],
+                self.pools.root[:-1],
+            ]
+        )
+        npp = np.stack(
+            [
+                self.npp.leaf[1:],
+                self.npp.stem[1:],
+                self.npp.root[1:],
+            ]
+        )
+        turnover = np.stack(
+            [
+                self.turnover.leaf[1:],
+                self.turnover.stem[1:],
+                self.turnover.root[1:],
+            ]
+        )
+        disturbance = np.stack(
+            [
+                self.disturbance.leaf[1:],
+                self.disturbance.stem[1:],
+                self.disturbance.root[1:],
+            ]
+        )
+        pools_actual = np.stack(
+            [
+                self.pools.leaf[1:],
+                self.pools.stem[1:],
+                self.pools.root[1:],
+            ]
+        )
+
+        pools_expected = pools_prev + npp - turnover - disturbance
+
+        balanced = np.isclose(pools_expected, pools_actual, rtol=rtol)
+        violations = ~balanced.all(axis=0)
+
+        return not violations.any()
 
 
 class Sgam:
