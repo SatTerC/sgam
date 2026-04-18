@@ -8,7 +8,7 @@ class TestComputeCue:
         component = Sgam(PlantFunctionalType.TREE)
         lue = np.array([0.1, 0.5, 0.9])
         iwue = np.array([50.0, 100.0, 200.0])
-        cue = component.compute_cue(lue, iwue)
+        cue, _, _ = component.compute_cue(lue, iwue)
         assert np.all(cue >= 0.2)
         assert np.all(cue <= 0.9)
 
@@ -74,8 +74,8 @@ class TestForwardCropDisturbance:
             root_pool_init=5.0,
         )
 
-        assert result["leaf_pool"][3] == 0.0
-        assert result["removed"][3] > 0.0
+        assert result.pools.leaf[3] == 0.0
+        assert result.pools.removed[3] > 0.0
 
 
 class TestForwardTreeDisturbance:
@@ -106,8 +106,8 @@ class TestForwardTreeDisturbance:
             root_pool_init=5.0,
         )
 
-        assert result["leaf_pool"][3] < 5.0
-        assert result["leaf_pool"][3] > 0.0
+        assert result.pools.leaf[3] < 5.0
+        assert result.pools.leaf[3] > 0.0
 
 
 class TestForwardIntegration:
@@ -138,9 +138,9 @@ class TestForwardIntegration:
             root_pool_init=1.0,
         )
 
-        assert np.all(result["leaf_pool"] >= 0.0)
-        assert np.all(result["stem_pool"] >= 0.0)
-        assert np.all(result["root_pool"] >= 0.0)
+        assert np.all(result.pools.leaf >= 0.0)
+        assert np.all(result.pools.stem >= 0.0)
+        assert np.all(result.pools.root >= 0.0)
 
 
 class TestCustomPftParams:
