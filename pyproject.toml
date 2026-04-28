@@ -16,13 +16,11 @@ dependencies = [
     "numpy>=2.4.2",
 ]
 
-[project.scripts]
-sgam = "sgam:main"
-
 [dependency-groups]
 dev = [
     {include-group = "test"},
     {include-group = "docs"},
+    "mypy>=1.0",
     "pre-commit>=4.6.0",
     "ruff>=0.15.4",
     "rust-just>=1.46.0",
@@ -30,9 +28,30 @@ dev = [
 docs = [
     "mkdocstrings-python>=2.0.3",
     "zensical>=0.0.24",
+    "matplotlib>=3.5",
 ]
 test = [
     "pytest>=9.0.2",
     "pytest-cov>=6.0",
     "hypothesis>=6.0",
 ]
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "NPY", # numpy-specific rules (deprecated API etc.)
+    "D",   # pydocstyle
+]
+ignore = ["E501"]  # line length enforced by ruff format, not ruff check
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"scripts/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

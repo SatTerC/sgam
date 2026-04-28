@@ -11,6 +11,18 @@ lint:
 test:
   pytest
 
+# Run tests with coverage report (requires pytest-cov).
+coverage:
+  pytest --cov=sgam --cov-report=term-missing --cov-fail-under=90
+
+# Run static type checker (requires mypy in dev group).
+typecheck:
+  mypy src/sgam
+
+# Regenerate tables and figures in docs/science.md from pft_defaults.toml.
+_gen-science-assets:
+  python scripts/gen_science_assets.py
+
 # Build the documentation using Zensical.
-docs:
+docs: _gen-science-assets
   zensical build

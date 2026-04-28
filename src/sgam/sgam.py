@@ -1,5 +1,4 @@
-"""
-SGAM (Simplified Growth/GPP Allocation Model) component.
+"""SGAM (Simplified Growth/GPP Allocation Model) component.
 
 This module provides the Sgam class, which simulates the allocation
 of gross primary productivity (GPP) to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size)
@@ -201,6 +200,7 @@ class Sgam:
         use_dynamic_allocation: bool = True,
         hemisphere: str = "NH",
     ):
+        """Initialise SGAM for a given plant functional type."""
         if hemisphere not in ("NH", "SH"):
             raise ValueError(f"hemisphere must be 'NH' or 'SH', got {hemisphere!r}")
         self.plant_type = plant_type
@@ -215,8 +215,7 @@ class Sgam:
     def compute_cue(
         self, lue: NDArray, iwue: NDArray
     ) -> tuple[NDArray, NDArray, NDArray]:
-        """Compute carbon use efficiency (CUE) from light use efficiency and
-        intrinsic water use efficiency.
+        """Compute carbon use efficiency (CUE) from LUE and iWUE inputs.
 
         CUE = CUE_min + score_avg * (CUE_max - CUE_min)
 

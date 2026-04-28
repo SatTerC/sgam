@@ -1,5 +1,4 @@
-"""
-Plant Functional Type (PFT) definitions for SGAM.
+"""Plant Functional Type (PFT) definitions for SGAM.
 
 This module defines the PFT enum and default parameters for different plant types
 used in the Static Game-theoretic Allocation Model.
@@ -87,6 +86,7 @@ class PftParams:
     """
 
     def __post_init__(self) -> None:
+        """Validate that base allocation fractions sum to 1.0."""
         total = (
             self.leaf_base_allocation
             + self.stem_base_allocation

@@ -1,5 +1,4 @@
-"""
-Disturbance detection module for SGAM.
+"""Disturbance detection module for SGAM.
 
 This module provides functionality to identify disturbance events (such as
 harvest, fire, or pest damage) based on rapid declines in GPP and LAI.
