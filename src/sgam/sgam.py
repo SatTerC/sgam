@@ -266,12 +266,7 @@ class Sgam:
         f_sm = np.clip((soil_moisture - theta_wp) / (theta_ref - theta_wp), 0.0, 1.0)
 
         # 2. VPD Stress (Exponential decay)
-        # gamma defines sensitivity. 0.0005 is a standard value for kPa-based Pa.
-        # If VPD is in Pa, gamma should be around 0.00005 to 0.0001
-        gamma = 0.0001
-        f_vpd = np.exp(
-            -gamma * np.maximum(vpd - vpd_thresh, 0.0)
-        )  # Threshold of 500Pa before stress starts
+        f_vpd = np.exp(-gamma * np.maximum(vpd - vpd_thresh, 0.0))
 
         # 3. Combine using the Minimum (Liebig's Law)
         # The most limiting factor dominates the plant's physiology
