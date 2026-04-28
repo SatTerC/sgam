@@ -496,6 +496,8 @@ class Sgam:
         stem_npp: NDArray[np.float64],
         root_npp: NDArray[np.float64],
         disturbance_severity: NDArray[np.float64],
+        litter_pool_init: float = 0.0,
+        removed_init: float = 0.0,
     ) -> tuple[
         NDArray[np.float64],
         NDArray[np.float64],
@@ -518,8 +520,8 @@ class Sgam:
         leaf_pool = leaf_pool_init
         stem_pool = stem_pool_init
         root_pool = root_pool_init
-        litter_pool = 0.0
-        removed = 0.0
+        litter_pool = litter_pool_init
+        removed = removed_init
 
         n_weeks = len(leaf_npp)
         for t in range(n_weeks):
@@ -607,6 +609,8 @@ class Sgam:
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
+        litter_pool_init: float = 0.0,
+        removed_init: float = 0.0,
         strict_mass_balance: bool = True,
     ) -> SgamOutput:
         """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
@@ -624,6 +628,8 @@ class Sgam:
             leaf_pool_init: Initial leaf biomass pool size (gC).
             stem_pool_init: Initial stem biomass pool size (gC).
             root_pool_init: Initial root biomass pool size (gC).
+            litter_pool_init: Initial litter pool size (gC). Defaults to 0.0.
+            removed_init: Initial removed-carbon accumulator (gC). Defaults to 0.0.
             strict_mass_balance: If True (default), raise RuntimeError on a mass
                 balance violation. If False, issue a warning instead.
 
@@ -653,6 +659,8 @@ class Sgam:
             stem_npp=stem_npp,
             root_npp=root_npp,
             disturbance_severity=disturbances,
+            litter_pool_init=litter_pool_init,
+            removed_init=removed_init,
         )
 
         leaf_pool, stem_pool, root_pool, litter_pool, removed = pools
@@ -715,6 +723,8 @@ class Sgam:
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
+        litter_pool_init: float = 0.0,
+        removed_init: float = 0.0,
         strict_mass_balance: bool = True,
     ) -> SgamOutput:
         """Alias for ``forward``.
@@ -732,6 +742,8 @@ class Sgam:
             leaf_pool_init: Initial leaf biomass pool size (gC).
             stem_pool_init: Initial stem biomass pool size (gC).
             root_pool_init: Initial root biomass pool size (gC).
+            litter_pool_init: Initial litter pool size (gC). Defaults to 0.0.
+            removed_init: Initial removed-carbon accumulator (gC). Defaults to 0.0.
             strict_mass_balance: If True (default), raise RuntimeError on a mass
                 balance violation. If False, issue a warning instead.
 
@@ -751,5 +763,7 @@ class Sgam:
             leaf_pool_init=leaf_pool_init,
             stem_pool_init=stem_pool_init,
             root_pool_init=root_pool_init,
+            litter_pool_init=litter_pool_init,
+            removed_init=removed_init,
             strict_mass_balance=strict_mass_balance,
         )
