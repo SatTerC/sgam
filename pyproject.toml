@@ -33,4 +33,6 @@ docs = [
 ]
 test = [
     "pytest>=9.0.2",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.0",
 ]
