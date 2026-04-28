@@ -4,7 +4,7 @@ site_description = "A Simple Growth/GPP Allocation Model written in Python"
 site_author = "Joe Marsh Rossney, Vasilis Myrgiotis"
 
 site_url = "https://satterc.github.io/sgam"
-use_directory_urls = false  # TODO: set to true once stable?
+use_directory_urls = false
 copyright = "Copyright &copy; 2026 The authors"
 
 # Katex
