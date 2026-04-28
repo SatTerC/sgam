@@ -176,6 +176,10 @@ class Sgam:
         use_dynamic_allocation: If True (default), allocation fractions
             vary with environmental conditions (temperature, moisture, VPD).
             If False, use fixed base allocations from pft_params.
+        hemisphere: Either "NH" (Northern Hemisphere, default) or "SH"
+            (Southern Hemisphere). Controls the phase of the seasonality
+            modifier so that peak leaf allocation coincides with the local
+            summer solstice (NH: week 26, SH: week 52).
 
     Todo:
         - Refine crop modelling --> growing_season_limit necessary ?
@@ -188,12 +192,18 @@ class Sgam:
         plant_type: PlantFunctionalType,
         pft_params: PftParams | None = None,
         use_dynamic_allocation: bool = True,
+        hemisphere: str = "NH",
     ):
+        if hemisphere not in ("NH", "SH"):
+            raise ValueError(f"hemisphere must be 'NH' or 'SH', got {hemisphere!r}")
         self.plant_type = plant_type
         self.pft_params = (
             pft_params if pft_params is not None else get_default_pft_params(plant_type)
         )
         self.use_dynamic_allocation = use_dynamic_allocation
+        # Phase shift for the seasonality sine wave (weeks).
+        # NH: peak near week 26 (summer solstice); SH: peak near week 52.
+        self._season_phase = 12 if hemisphere == "NH" else 38
 
     def compute_cue(
         self, lue: NDArray, iwue: NDArray
@@ -313,7 +323,9 @@ class Sgam:
         # 1. Seasonality Modifier
         # Peak allocation to leaves occurs around the summer solstice (Week 26).
         # Shifted by 12 weeks so the sine wave begins its climb in spring.
-        seasonality_mod = 0.15 * np.sin(2 * np.pi * (week_of_year - 12) / 52.0)
+        seasonality_mod = 0.15 * np.sin(
+            2 * np.pi * (week_of_year - self._season_phase) / 52.0
+        )
 
         # 2. Temperature Modifier
         # Linear shift favoring leaf allocation in warmer weeks, up to a 10% swing.
