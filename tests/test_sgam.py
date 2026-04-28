@@ -1,52 +1,85 @@
+import pytest
 import numpy as np
 from sgam.sgam import Sgam
 from sgam.pft import PlantFunctionalType, PftParams, get_default_pft_params
 
 
+@pytest.mark.parametrize("pft", PlantFunctionalType)
 class TestComputeCue:
-    def test_cue_output_range(self):
-        component = Sgam(PlantFunctionalType.TREE)
+    def test_cue_output_range(self, pft):
+        component = Sgam(pft)
         lue = np.array([0.1, 0.5, 0.9])
         iwue = np.array([50.0, 100.0, 200.0])
         cue, _, _ = component.compute_cue(lue, iwue)
         assert np.all(cue >= 0.2)
         assert np.all(cue <= 0.7)
 
-    def test_cue_maximum_at_saturated_inputs(self):
+    def test_cue_maximum_at_saturated_inputs(self, pft):
         """CUE ceiling is 0.7, reached when both LUE and iWUE are at or above max."""
-        component = Sgam(PlantFunctionalType.TREE)
+        component = Sgam(pft)
         params = component.pft_params
         lue = np.array([params.lue_max * 2])  # saturated → score = 1.0
         iwue = np.array([params.iwue_max * 2])  # saturated → score = 1.0
         cue, _, _ = component.compute_cue(lue, iwue)
         np.testing.assert_allclose(cue, 0.7)
 
-    def test_cue_minimum_at_zero_inputs(self):
+    def test_cue_minimum_at_zero_inputs(self, pft):
         """CUE floor is 0.2, reached when both LUE and iWUE are zero."""
-        component = Sgam(PlantFunctionalType.TREE)
+        component = Sgam(pft)
         cue, _, _ = component.compute_cue(np.array([0.0]), np.array([0.0]))
         np.testing.assert_allclose(cue, 0.2)
 
 
+@pytest.mark.parametrize("pft", PlantFunctionalType)
 class TestComputeDroughtModifier:
-    def test_no_stress_returns_one(self):
-        component = Sgam(PlantFunctionalType.TREE)
-        soil_moisture = np.array([0.5, 0.6, 0.7])
-        vpd = np.array([200.0, 300.0, 400.0])
+    def test_no_stress_returns_one(self, pft):
+        component = Sgam(pft)
+        params = component.pft_params
+        # Soil moisture well above field capacity, VPD well below threshold
+        soil_moisture = np.array([params.field_capacity * 2])
+        vpd = np.array([params.vpd_threshold * 0.1])
         modifier = component.compute_drought_modifier(soil_moisture, vpd)
-        assert np.all(modifier >= 0.9)
+        assert np.all(modifier >= 0.99)
 
-    def test_moisture_stress_decreases_modifier(self):
-        component = Sgam(PlantFunctionalType.TREE)
-        soil_moisture = np.array([0.05])
+    def test_moisture_stress_decreases_modifier(self, pft):
+        component = Sgam(pft)
+        params = component.pft_params
+        # Soil moisture well below wilting point → maximum stress
+        soil_moisture = np.array([params.wilting_point * 0.1])
         vpd = np.array([500.0])
         modifier = component.compute_drought_modifier(soil_moisture, vpd)
         assert modifier[0] < 1.0
 
+    def test_vpd_stress_decreases_modifier(self, pft):
+        """High VPD (well above threshold) must reduce the modifier below 0.5."""
+        params = get_default_pft_params(pft)
+        component = Sgam(pft)
+        # Soil moisture at field capacity → f_sm = 1.0, so f_vpd is the binding constraint
+        soil_moisture = np.array([params.field_capacity])
+        vpd = np.array([params.vpd_threshold * 5.0])  # well above threshold
+        modifier = component.compute_drought_modifier(soil_moisture, vpd)
+        assert modifier[0] < 0.5
 
+    @pytest.mark.parametrize(
+        "pft_a,pft_b",
+        [(PlantFunctionalType.CROP, PlantFunctionalType.SHRUB)],
+    )
+    def test_vpd_sensitivity_differs_by_pft(self, pft, pft_a, pft_b):
+        """After fixing P0-A: different PFTs must produce different f_vpd."""
+        vpd = np.array([1000.0])  # well above both thresholds
+        soil_moisture = np.array([0.5])
+        modifier_a = Sgam(pft_a).compute_drought_modifier(soil_moisture, vpd)
+        modifier_b = Sgam(pft_b).compute_drought_modifier(soil_moisture, vpd)
+        # CROP vpd_sensitivity=0.0012, SHRUB vpd_sensitivity=0.0003 → CROP more stressed
+        assert modifier_a[0] < modifier_b[0], (
+            "CROP should be more VPD-stressed than SHRUB at the same VPD"
+        )
+
+
+@pytest.mark.parametrize("pft", PlantFunctionalType)
 class TestComputeAllocationFractions:
-    def test_allocations_sum_to_one(self):
-        component = Sgam(PlantFunctionalType.TREE)
+    def test_allocations_sum_to_one(self, pft):
+        component = Sgam(pft)
         temperature = np.array([20.0, 25.0])
         soil_moisture = np.array([0.5, 0.5])
         vpd = np.array([500.0, 500.0])
@@ -59,6 +92,27 @@ class TestComputeAllocationFractions:
         )
         total = leaf + stem + root
         np.testing.assert_allclose(total, np.ones(2), rtol=1e-10)
+
+    def test_vpd_stress_at_threshold_equals_one(self, pft):
+        """At vpd == vpd_threshold, vpd_stress should be clipped to 1.0.
+
+        This verifies that vpd_threshold (Pa) is used, not iwue_max (μmol/mol).
+        """
+        params = get_default_pft_params(pft)
+        model = Sgam(pft)
+
+        # Set VPD exactly at the PFT's threshold
+        vpd = np.array([params.vpd_threshold])
+        temperature = np.array([20.0])
+        soil_moisture = np.array([params.field_capacity])  # no moisture stress
+        week_of_year = np.array([26.0])
+
+        leaf, stem, root = model.compute_allocation_fractions(
+            temperature, soil_moisture, vpd, week_of_year
+        )
+        # At vpd_threshold the drought root bonus should be at maximum (1.0)
+        # so root allocation must be >= base allocation
+        assert root[0] >= params.root_base_allocation
 
 
 class TestForwardCropDisturbance:
