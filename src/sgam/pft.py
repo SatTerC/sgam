@@ -80,6 +80,10 @@ class PftParams:
             conductance begins to decline.
         vpd_sensitivity: Rate of decline in stomatal conductance with
             increasing VPD (Pa^-1^). Used in f_vpd = exp(-gamma * (VPD - threshold)).
+        temp_optimum: Temperature (°C) at which the leaf allocation modifier
+            is zero (neutral). Defaults to 20.0.
+        temp_sensitivity: Temperature range (°C) over which the allocation
+            modifier spans ±10%. Defaults to 40.0.
     """
 
     def __post_init__(self) -> None:
@@ -123,6 +127,11 @@ class PftParams:
     vpd_threshold: float
     vpd_sensitivity: float
 
+    # Temperature response parameters for dynamic allocation
+    # Default values reproduce the previously hard-coded behaviour.
+    temp_optimum: float = 20.0  # °C — neutral point for leaf allocation modifier
+    temp_sensitivity: float = 40.0  # °C — range over which ±10% swing occurs
+
 
 _PFT_PARAMS: dict[PlantFunctionalType, PftParams] | None = None
 
@@ -152,6 +161,8 @@ def _load_pft_params() -> dict[PlantFunctionalType, PftParams]:
             field_capacity=section["field_capacity"],
             vpd_threshold=section["vpd_threshold"],
             vpd_sensitivity=section["vpd_sensitivity"],
+            temp_optimum=section["temp_optimum"],
+            temp_sensitivity=section["temp_sensitivity"],
         )
     return params
 

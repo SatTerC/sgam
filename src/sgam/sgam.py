@@ -317,12 +317,20 @@ class Sgam:
 
         # 2. Temperature Modifier
         # Linear shift favoring leaf allocation in warmer weeks, up to a 10% swing.
-        temperature_mod = np.clip((temperature - 20) / 40, -0.1, 0.1)
+        temperature_mod = np.clip(
+            (temperature - self.pft_params.temp_optimum)
+            / self.pft_params.temp_sensitivity,
+            -0.1,
+            0.1,
+        )
 
         # 3. Drought Stress Modifier
         # moisture_stress: 0.0 (wet) to 1.0 (dry).
-        # Assumes 0.5 is a generic PFT-agnostic moisture midpoint.
-        moisture_stress = np.clip(1.0 - (soil_moisture / 0.5), 0, 1)
+        # Reference is the midpoint of [wilting_point, field_capacity].
+        moisture_ref = (
+            self.pft_params.wilting_point + self.pft_params.field_capacity
+        ) / 2
+        moisture_stress = np.clip(1.0 - (soil_moisture / moisture_ref), 0, 1)
 
         # VPD stress: normalised against the PFT's VPD threshold (both in Pa).
         vpd_stress = np.clip(vpd / self.pft_params.vpd_threshold, 0, 1)
