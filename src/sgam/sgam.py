@@ -321,8 +321,8 @@ class Sgam:
         # Assumes 0.5 is a generic PFT-agnostic moisture midpoint.
         moisture_stress = np.clip(1.0 - (soil_moisture / 0.5), 0, 1)
 
-        # VPD stress: scaled against the PFT's specific IWUE threshold.
-        vpd_stress = np.clip(vpd / self.pft_params.iwue_max, 0, 1)
+        # VPD stress: normalised against the PFT's VPD threshold (both in Pa).
+        vpd_stress = np.clip(vpd / self.pft_params.vpd_threshold, 0, 1)
 
         # Total drought bonus shifts up to 15% extra carbon to the roots for foraging.
         drought_root_bonus = 0.15 * np.maximum(moisture_stress, vpd_stress)
