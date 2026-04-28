@@ -12,8 +12,9 @@ import warnings
 import numpy as np
 from numpy.typing import NDArray
 
+from dataclasses import dataclass, field
+
 from .pft import PftParams, PlantFunctionalType, get_default_pft_params
-from dataclasses import dataclass
 
 
 @dataclass
@@ -80,8 +81,8 @@ class SgamDiagnostics:
 class SgamOutput:
     """Full model output containing pools, fluxes, and diagnostics.
 
-    Validates mass balance in __post_init__, issuing a warning if violated
-    rather than raising an error to allow for downstream use.
+    Validates mass balance in __post_init__. By default raises RuntimeError
+    on violation; set strict_mass_balance=False to downgrade to a warning.
     """
 
     pools: SgamPools
@@ -90,10 +91,16 @@ class SgamOutput:
     respiration: SgamRespiration
     disturbance: SgamDisturbance
     diagnostics: SgamDiagnostics
+    strict_mass_balance: bool = field(default=True, repr=False, compare=False)
 
     def __post_init__(self):
-        """Validate mass balance in post-init, issue warning if violated."""
+        """Validate mass balance in post-init."""
         if not self._validate_mass_balance():
+            if self.strict_mass_balance:
+                raise RuntimeError(
+                    "Mass balance violation detected. Pass strict_mass_balance=False "
+                    "to Sgam.forward() to downgrade this to a warning."
+                )
             warnings.warn("Mass balance violation detected")
 
     def _validate_mass_balance(self, rtol: float = 1e-6) -> bool:
@@ -600,6 +607,7 @@ class Sgam:
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
+        strict_mass_balance: bool = True,
     ) -> SgamOutput:
         """Simulate weekly plant growth and carbon allocation using a mass-balance approach.
 
@@ -616,6 +624,8 @@ class Sgam:
             leaf_pool_init: Initial leaf biomass pool size (gC).
             stem_pool_init: Initial stem biomass pool size (gC).
             root_pool_init: Initial root biomass pool size (gC).
+            strict_mass_balance: If True (default), raise RuntimeError on a mass
+                balance violation. If False, issue a warning instead.
 
         Returns:
             SgamOutput containing pools, npp, turnover, respiration,
@@ -689,6 +699,7 @@ class Sgam:
                 lue_score=lue_score,
                 iwue_score=iwue_score,
             ),
+            strict_mass_balance=strict_mass_balance,
         )
 
     def __call__(
@@ -704,6 +715,7 @@ class Sgam:
         leaf_pool_init: float,
         stem_pool_init: float,
         root_pool_init: float,
+        strict_mass_balance: bool = True,
     ) -> SgamOutput:
         """Alias for ``forward``.
 
@@ -720,6 +732,8 @@ class Sgam:
             leaf_pool_init: Initial leaf biomass pool size (gC).
             stem_pool_init: Initial stem biomass pool size (gC).
             root_pool_init: Initial root biomass pool size (gC).
+            strict_mass_balance: If True (default), raise RuntimeError on a mass
+                balance violation. If False, issue a warning instead.
 
         Returns:
             SgamOutput containing pools, npp, turnover, respiration,
@@ -737,4 +751,5 @@ class Sgam:
             leaf_pool_init=leaf_pool_init,
             stem_pool_init=stem_pool_init,
             root_pool_init=root_pool_init,
+            strict_mass_balance=strict_mass_balance,
         )
