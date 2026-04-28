@@ -536,9 +536,9 @@ class Sgam:
             Δ_root = root_npp[t] - root_turnover
             Δ_litter = leaf_turnover + stem_turnover + root_turnover
 
-            leaf_pool += Δ_leaf
-            stem_pool += Δ_stem
-            root_pool += Δ_root
+            leaf_pool = max(0.0, leaf_pool + Δ_leaf)
+            stem_pool = max(0.0, stem_pool + Δ_stem)
+            root_pool = max(0.0, root_pool + Δ_root)
             litter_pool += Δ_litter
 
             # Apply disturbance update
