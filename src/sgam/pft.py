@@ -86,7 +86,7 @@ class PftParams:
     """
 
     def __post_init__(self) -> None:
-        """Validate that base allocation fractions sum to 1.0."""
+        """Validate allocation fractions and turnover rates."""
         total = (
             self.leaf_base_allocation
             + self.stem_base_allocation
@@ -99,6 +99,13 @@ class PftParams:
                 f"stem={self.stem_base_allocation}, "
                 f"root={self.root_base_allocation}"
             )
+        for name, rate in (
+            ("leaf_turnover_rate", self.leaf_turnover_rate),
+            ("stem_turnover_rate", self.stem_turnover_rate),
+            ("root_turnover_rate", self.root_turnover_rate),
+        ):
+            if not (0.0 < rate <= 1.0):
+                raise ValueError(f"{name} must be in (0, 1], got {rate}")
 
     # Base allocation fractions (must sum to 1.0)
     leaf_base_allocation: float
