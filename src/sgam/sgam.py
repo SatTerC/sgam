@@ -201,7 +201,10 @@ class Sgam:
         """Compute carbon use efficiency (CUE) from light use efficiency and
         intrinsic water use efficiency.
 
-        CUE = CUE_{max} . f(LUE_{norm}) . f(IWUE_{norm})
+        CUE = CUE_min + score_avg * (CUE_max - CUE_min)
+
+        where score_avg = (LUE / LUE_max + iWUE / iWUE_max) / 2, clipped to
+        [0, 1], and CUE_min = 0.2, CUE_max = 0.7. Output range is [0.2, 0.7].
 
         Args:
             lue: Weekly mean light use efficiency (gC/MJ).

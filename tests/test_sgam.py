@@ -10,7 +10,22 @@ class TestComputeCue:
         iwue = np.array([50.0, 100.0, 200.0])
         cue, _, _ = component.compute_cue(lue, iwue)
         assert np.all(cue >= 0.2)
-        assert np.all(cue <= 0.9)
+        assert np.all(cue <= 0.7)
+
+    def test_cue_maximum_at_saturated_inputs(self):
+        """CUE ceiling is 0.7, reached when both LUE and iWUE are at or above max."""
+        component = Sgam(PlantFunctionalType.TREE)
+        params = component.pft_params
+        lue = np.array([params.lue_max * 2])  # saturated → score = 1.0
+        iwue = np.array([params.iwue_max * 2])  # saturated → score = 1.0
+        cue, _, _ = component.compute_cue(lue, iwue)
+        np.testing.assert_allclose(cue, 0.7)
+
+    def test_cue_minimum_at_zero_inputs(self):
+        """CUE floor is 0.2, reached when both LUE and iWUE are zero."""
+        component = Sgam(PlantFunctionalType.TREE)
+        cue, _, _ = component.compute_cue(np.array([0.0]), np.array([0.0]))
+        np.testing.assert_allclose(cue, 0.2)
 
 
 class TestComputeDroughtModifier:
