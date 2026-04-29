@@ -11,7 +11,7 @@ authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" },
     { name = "vmyrgiotis", email = "" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.4.2",
 ]
@@ -35,6 +35,11 @@ test = [
     "pytest-cov>=6.0",
     "hypothesis>=6.0",
 ]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
