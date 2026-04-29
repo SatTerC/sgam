@@ -12,12 +12,12 @@ test:
   pytest --log-cli-level=INFO
 
 # Run tests with coverage report (requires pytest-cov).
-coverage:
+test-cov:
   pytest --cov=sgam --cov-report=term-missing --cov-fail-under=90
 
 # Run static type checker (requires mypy in dev group).
 typecheck:
-  mypy src/sgam
+  pyright src/sgam
 
 # Regenerate PFT table and figures referenced in docs/science.md.
 _gen-science-assets:

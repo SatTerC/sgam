@@ -20,8 +20,8 @@ dependencies = [
 dev = [
     {include-group = "test"},
     {include-group = "docs"},
-    "mypy>=1.0",
     "pre-commit>=4.6.0",
+    "pyright>=1.1.409",
     "ruff>=0.15.4",
     "rust-just>=1.46.0",
 ]
@@ -35,10 +35,6 @@ test = [
     "pytest-cov>=6.0",
     "hypothesis>=6.0",
 ]
-
-[tool.mypy]
-strict = true
-ignore_missing_imports = true
 
 [tool.ruff.lint]
 select = [
