@@ -2,5 +2,8 @@
 site/
 __pycache__/
 notes/
+.coverage
+docs/_static/pft_table.txt
+notes/
 
 *.png

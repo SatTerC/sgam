@@ -1,6 +1,6 @@
 """Generate the PFT parameter table and figures for docs/science.md.
 
-Writes docs/_static/pft_table.md and docs/_static/images/*.png.
+Writes docs/_static/pft_table.txt and docs/_static/images/*.png.
 Run directly or via `just docs` (which calls this before the zensical build).
 science.md references these outputs statically and is not modified by this script.
 """
@@ -19,7 +19,7 @@ from sgam.sgam import Sgam, PlantFunctionalType
 REPO = Path(__file__).parent.parent
 TOML_PATH = REPO / "src/sgam/config/pft_defaults.toml"
 IMAGES_DIR = REPO / "docs/_static/images"
-TABLE_PATH = REPO / "docs/_static/pft_table.md"
+TABLE_PATH = REPO / "docs/_static/pft_table.txt"
 
 PFTS = ["tree", "grass", "shrub", "crop"]
 PFT_COLORS = {
@@ -27,6 +27,38 @@ PFT_COLORS = {
     "grass": "#f77f00",
     "shrub": "#7209b7",
     "crop": "#d62828",
+}
+
+# rcParams applied via plt.rc_context() when generating each theme variant.
+# Transparent figure/axes backgrounds let the page colour show through;
+# text colours are flipped per theme so labels remain legible.
+_THEME_RC: dict[str, dict] = {
+    "light": {
+        "text.color": "#333333",
+        "axes.labelcolor": "#333333",
+        "axes.edgecolor": "#aaaaaa",
+        "xtick.color": "#444444",
+        "ytick.color": "#444444",
+        "figure.facecolor": "none",
+        "axes.facecolor": "none",
+        "savefig.facecolor": "none",
+        "grid.color": "#999999",
+        "legend.facecolor": (1.0, 1.0, 1.0, 0.75),
+        "legend.edgecolor": "#cccccc",
+    },
+    "dark": {
+        "text.color": "#cccccc",
+        "axes.labelcolor": "#cccccc",
+        "axes.edgecolor": "#555555",
+        "xtick.color": "#bbbbbb",
+        "ytick.color": "#bbbbbb",
+        "figure.facecolor": "none",
+        "axes.facecolor": "none",
+        "savefig.facecolor": "none",
+        "grid.color": "#666666",
+        "legend.facecolor": (0.08, 0.08, 0.08, 0.75),
+        "legend.edgecolor": "#444444",
+    },
 }
 
 ROWS: list[tuple[str, str]] = [
@@ -196,7 +228,7 @@ def fig_allocation(data: dict, out_path: Path) -> None:
 
 
 def fig_radar(data: dict, out_path: Path) -> None:
-    """Radar chart comparing PFTs across normalised parameters."""
+    """Radar chart per PFT across normalised parameters (2x2 grid)."""
     params = [
         ("leaf_base_allocation", "Leaf alloc"),
         ("stem_base_allocation", "Stem alloc"),
@@ -224,27 +256,25 @@ def fig_radar(data: dict, out_path: Path) -> None:
 
     labels = [label for _, label in params]
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+    closed_angles = angles + [angles[0]]
     for pft in PFTS:
         norm[pft].append(norm[pft][0])
-    angles.append(angles[0])
-    labels.append(labels[0])
 
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    for pft in PFTS:
-        ax.plot(
-            angles,
-            norm[pft],
-            label=pft.capitalize(),
-            color=PFT_COLORS[pft],
-            linewidth=2,
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw=dict(polar=True))
+    axes = axes.flatten()
+
+    for ax, pft in zip(axes, PFTS):
+        color = PFT_COLORS[pft]
+        ax.plot(closed_angles, norm[pft], color=color, linewidth=2)
+        ax.fill(closed_angles, norm[pft], alpha=0.25, color=color)
+        ax.set_thetagrids(np.degrees(angles), labels)
+        ax.set_ylim(0, 1)
+        ax.set_title(
+            pft.capitalize(), color=color, fontsize=13, fontweight="bold", pad=14
         )
-        ax.fill(angles, norm[pft], alpha=0.15, color=PFT_COLORS[pft])
+        ax.tick_params(labelsize=7)
 
-    ax.set_thetagrids(np.degrees(angles[:-1]), labels[:-1])
-    ax.set_ylim(0, 1)
-    ax.set_title("PFT comparison (normalised)")
-    ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.0), fontsize=8)
-
+    fig.suptitle("PFT comparison (normalised)", fontsize=14, y=1.01)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
@@ -258,10 +288,13 @@ def main() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     TABLE_PATH.write_text(build_table(data))
-    fig_cue(IMAGES_DIR / "cue.png")
-    fig_drought(data, IMAGES_DIR / "drought.png")
-    fig_allocation(data, IMAGES_DIR / "allocation.png")
-    fig_radar(data, IMAGES_DIR / "radar.png")
+
+    for theme, rc in _THEME_RC.items():
+        with plt.rc_context(rc):
+            fig_cue(IMAGES_DIR / f"cue_{theme}.png")
+            fig_drought(data, IMAGES_DIR / f"drought_{theme}.png")
+            fig_allocation(data, IMAGES_DIR / f"allocation_{theme}.png")
+            fig_radar(data, IMAGES_DIR / f"radar_{theme}.png")
 
     print(f"Written table: {TABLE_PATH.relative_to(REPO)}")
     print(f"Written figures: {IMAGES_DIR.relative_to(REPO)}/")

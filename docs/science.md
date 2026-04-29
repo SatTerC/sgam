@@ -13,6 +13,7 @@ The central question the model addresses is: given a prescribed Gross Primary Pr
 ```mermaid
 flowchart TD
     GPP["GPP"]
+    NPP["NPP"]
     RESP["Respiration"]
     LEAF["Leaf"]
     STEM["Stem"]
@@ -20,10 +21,12 @@ flowchart TD
     LIT["Litter"]
     REM["Removed"]
 
-    GPP -- "NPP" --> LEAF
-    GPP -- "NPP" --> STEM
-    GPP -- "NPP" --> ROOT
-    GPP -- "1 − CUE" --> RESP
+    GPP -- "× CUE" --> NPP
+    GPP -- "× (1 − CUE)" --> RESP
+
+    NPP -- "f_leaf" --> LEAF
+    NPP -- "f_stem" --> STEM
+    NPP -- "f_root" --> ROOT
 
     LEAF -- "turnover" --> LIT
     STEM -- "turnover" --> LIT
@@ -58,7 +61,8 @@ $$\text{NPP} = \text{GPP} \times \text{CUE}$$
 
 and the remainder $\text{GPP} \times (1 - \text{CUE})$ is autotrophic respiration (see [`SgamRespiration`](API_Reference/sgam.md#sgam.sgam.SgamRespiration)). The normalised scores and CUE value are recorded in [`SgamDiagnostics`](API_Reference/sgam.md#sgam.sgam.SgamDiagnostics).
 
-![CUE response](_static/images/cue.png)
+![CUE response](_static/images/cue_light.png#only-light)
+![CUE response](_static/images/cue_dark.png#only-dark)
 
 ## Drought Modifier
 
@@ -79,7 +83,8 @@ Productivity is limited by whichever resource is most constraining:
 
 $$f_{\text{drought}} = \min(f_{\text{sm}},\; f_{\text{vpd}})$$
 
-![Drought modifier](_static/images/drought.png)
+![Drought modifier](_static/images/drought_light.png#only-light)
+![Drought modifier](_static/images/drought_dark.png#only-dark)
 
 ## Dynamic Allocation
 
@@ -115,7 +120,8 @@ $$a_{\text{root}} = \max\!\left(0.05,\; a_{\text{root}}^{(0)} - m_{\text{season}
 
 where the floors prevent biologically unrealistic allocation. The fractions used for partitioning are then normalised so that $f_{\text{leaf}} + f_{\text{stem}} + f_{\text{root}} = 1$.
 
-![Dynamic allocation](_static/images/allocation.png)
+![Dynamic allocation](_static/images/allocation_light.png#only-light)
+![Dynamic allocation](_static/images/allocation_dark.png#only-dark)
 
 ## Turnover and Litter
 
@@ -142,13 +148,14 @@ Disturbance fluxes at each timestep are recorded in [`SgamDisturbance`](API_Refe
 
 The model includes four [`PlantFunctionalType`](API_Reference/pft.md#sgam.pft.PlantFunctionalType) values whose [`PftParams`](API_Reference/pft.md#sgam.pft.PftParams) encode distinct ecological strategies. Default parameter sets can be retrieved with [`get_default_pft_params`](API_Reference/pft.md#sgam.pft.get_default_pft_params).
 
---8<-- "_static/pft_table.md"
+--8<-- "_static/pft_table.txt"
 
 Trees invest heavily in long-lived structural carbon (45% stem base allocation; stem residence time ~96 years), while grasses prioritise rapid leaf and root turnover.
 Shrubs are characterised by high water-use efficiency and drought tolerance (iWUE_max 650 μmol mol⁻¹; VPD threshold 1200 Pa; lowest wilting point).
 Crops are optimised for above-ground productivity with the highest LUE_max and lowest water-use efficiency, reflecting high-input agricultural conditions.
 
-![PFT radar chart](_static/images/radar.png)
+![PFT radar chart](_static/images/radar_light.png#only-light)
+![PFT radar chart](_static/images/radar_dark.png#only-dark)
 
 ## Mass Balance
 
