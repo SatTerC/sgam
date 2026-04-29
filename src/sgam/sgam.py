@@ -92,7 +92,7 @@ class SgamOutput:
     diagnostics: SgamDiagnostics
     strict_mass_balance: bool = field(default=True, repr=False, compare=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate mass balance in post-init."""
         if not self._validate_mass_balance():
             if self.strict_mass_balance:
@@ -213,8 +213,8 @@ class Sgam:
         self._season_phase = 12 if hemisphere == "NH" else 38
 
     def compute_cue(
-        self, lue: NDArray, iwue: NDArray
-    ) -> tuple[NDArray, NDArray, NDArray]:
+        self, lue: NDArray[np.float64], iwue: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """Compute carbon use efficiency (CUE) from LUE and iWUE inputs.
 
         CUE = CUE_min + score_avg * (CUE_max - CUE_min)
@@ -240,9 +240,9 @@ class Sgam:
 
     def compute_drought_modifier(
         self,
-        soil_moisture: NDArray,
-        vpd: NDArray,
-    ) -> NDArray:
+        soil_moisture: NDArray[np.float64],
+        vpd: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
         r"""Compute the environmental stress scalar using Liebig's Law of the Minimum.
 
         This modifier accounts for both edaphic (soil) and atmospheric (VPD) water
@@ -298,7 +298,7 @@ class Sgam:
         vpd: NDArray[np.float64],
         week_of_year: NDArray[np.float64],
         use_dynamic_allocation: bool | None = None,
-    ) -> tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """Compute carbon allocation fractions for leaf, stem, and root pools.
 
         Args:

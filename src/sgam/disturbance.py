@@ -30,7 +30,7 @@ def aggregate_to_weekly(daily_severity: NDArray[np.float64]) -> NDArray[np.float
     if remainder > 0:
         daily_severity = np.pad(daily_severity, (0, 7 - remainder), mode="constant")
 
-    weekly_max = daily_severity.reshape(-1, 7).max(axis=1)
+    weekly_max: NDArray[np.float64] = daily_severity.reshape(-1, 7).max(axis=1)
 
     return weekly_max
 
