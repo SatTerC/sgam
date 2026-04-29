@@ -1,7 +1,7 @@
 """Plant Functional Type (PFT) definitions for SGAM.
 
 This module defines the PFT enum and default parameters for different plant types
-used in the Static Game-theoretic Allocation Model.
+used in the Simplified Growth and Allocation Model (SGAM).
 
 Functions:
     get_default_pft_params: Get the default physiological parameters for a Plant Functional Type.

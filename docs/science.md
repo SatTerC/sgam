@@ -96,7 +96,7 @@ $$m_{\text{season}} = 0.15 \cdot \sin\!\left(\frac{2\pi(\text{week} - 12)}{52}\r
 
 This peaks at week 26 (northern hemisphere summer solstice) and troughs in winter, with a phase shift of 12 weeks so that allocation to leaves begins ramping up in spring.
 
-**Temperature deviation** from an optimum ([`temp_optimum`](API_Reference/pft.md#sgam.pft.PftParams), [`temp_sensitivity`](API_Reference/pft.md#sgam.pft.PftParams)) shifts allocation toward roots when temperatures are unfavourable:
+**Temperature deviation** from an optimum ([`temp_optimum`](API_Reference/pft.md#sgam.pft.PftParams), [`temp_sensitivity`](API_Reference/pft.md#sgam.pft.PftParams)) shifts allocation toward roots when temperatures are below-optimal ($T < T_{\text{opt}}$) and toward leaves when above-optimal ($T > T_{\text{opt}}$):
 
 $$m_{\text{temp}} = \text{clip}\!\left(\frac{T - T_{\text{opt}}}{T_{\text{range}}},\; -0.1,\; 0.1\right)$$
 

@@ -1,4 +1,4 @@
-"""SGAM (Simplified Growth/GPP Allocation Model) component.
+"""SGAM (Simplified Growth and Allocation Model).
 
 This module provides the Sgam class, which simulates the allocation
 of gross primary productivity (GPP) to plant carbon pools (leaf_pool_size, stem_pool_size, root_pool_size)
@@ -56,7 +56,12 @@ class SgamRespiration:
 
 @dataclass
 class SgamDisturbance:
-    """Disturbance loss flux to removed pool."""
+    """Disturbance loss flux from each pool (positive values, gC per week).
+
+    For non-crop PFTs, only the leaf pool is affected and carbon transfers to
+    litter. For crops, leaf and stem carbon transfers to the removed pool and
+    root carbon transfers to litter.
+    """
 
     leaf: NDArray[np.float64]
     stem: NDArray[np.float64]
@@ -65,7 +70,24 @@ class SgamDisturbance:
 
 @dataclass
 class SgamDiagnostics:
-    """Diagnostic variables computed during simulation."""
+    r"""Diagnostic variables computed at each weekly timestep.
+
+    Attributes:
+        cue: Carbon Use Efficiency, in [0.2, 0.7]. Fraction of GPP retained
+            as biomass.
+        allocation_leaf: Normalised leaf allocation fraction, in (0, 1).
+            Fraction of NPP directed to the leaf pool.
+        allocation_stem: Normalised stem allocation fraction, in (0, 1).
+        allocation_root: Normalised root allocation fraction, in (0, 1).
+            The three allocation fractions sum to 1 at every timestep.
+        drought_modifier: Combined drought scalar $f_\\text{drought} \\in [0, 1]$.
+            1.0 means no stress; 0.0 means maximum stress.
+        lue_score: Normalised Light Use Efficiency score $s_\\text{LUE} \\in [0, 1]$.
+            Ratio of LUE to its PFT-specific maximum, clipped to [0, 1].
+        iwue_score: Normalised Intrinsic Water Use Efficiency score
+            $s_\\text{iWUE} \\in [0, 1]$. Ratio of iWUE to its PFT-specific
+            maximum, clipped to [0, 1].
+    """
 
     cue: NDArray[np.float64]
     allocation_leaf: NDArray[np.float64]
@@ -166,7 +188,7 @@ class SgamOutput:
 
 
 class Sgam:
-    """The Simplified Growth/GPP Allocation Model (SGAM).
+    """The Simplified Growth and Allocation Model (SGAM).
 
     Simulates the allocation of gross primary productivity (GPP) to plant
     carbon pools (leaf_pool_size, stem_pool_size, root_pool_size) for
@@ -215,16 +237,30 @@ class Sgam:
     def compute_cue(
         self, lue: NDArray[np.float64], iwue: NDArray[np.float64]
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-        """Compute carbon use efficiency (CUE) from LUE and iWUE inputs.
+        r"""Compute carbon use efficiency (CUE) from LUE and iWUE inputs.
 
-        CUE = CUE_min + score_avg * (CUE_max - CUE_min)
+        Each efficiency metric is normalised against its PFT-specific maximum
+        to produce a dimensionless score in :math:`[0, 1]`:
 
-        where score_avg = (LUE / LUE_max + iWUE / iWUE_max) / 2, clipped to
-        [0, 1], and CUE_min = 0.2, CUE_max = 0.7. Output range is [0.2, 0.7].
+        $$
+        s_{\text{LUE}} = \min\!\left(\frac{\text{LUE}}{\text{LUE}_{\max}}, 1\right),
+        \qquad
+        s_{\text{iWUE}} = \min\!\left(\frac{\text{iWUE}}{\text{iWUE}_{\max}}, 1\right)
+        $$
+
+        The mean score linearly scales CUE between its biological bounds:
+
+        $$
+        \text{CUE} = \text{CUE}_{\min} + \bar{s} \cdot (\text{CUE}_{\max} - \text{CUE}_{\min}),
+        \quad \bar{s} = \tfrac{1}{2}(s_{\text{LUE}} + s_{\text{iWUE}})
+        $$
+
+        with :math:`\text{CUE}_{\min} = 0.2` and :math:`\text{CUE}_{\max} = 0.7`,
+        so output is in :math:`[0.2, 0.7]`.
 
         Args:
-            lue: Weekly mean light use efficiency (gC/MJ).
-            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
+            lue: Weekly mean light use efficiency (gC MJ⁻¹).
+            iwue: Weekly mean intrinsic water use efficiency (μmol mol⁻¹).
 
         Returns:
             Tuple of (cue, lue_score, iwue_score).
@@ -249,32 +285,36 @@ class Sgam:
         stress. The final modifier is the minimum of the two individual stress
         functions, ranging from 0.0 (maximum stress) to 1.0 (no stress).
 
-        **Soil Moisture Stress** ($f_{sm}$):
-        Scales linearly between the wilting point ($\theta_{wp}$) and a
-        reference soil moisture ($\theta_{ref}$):
+        **Soil Moisture Stress** ($f_{\text{sm}}$):
+        Scales linearly between the wilting point ($\theta_{\text{wp}}$) and
+        field capacity ($\theta_{\text{fc}}$):
 
         $$
-        f_{sm} = \begin{cases}
-        0 & \theta < \theta_{wp} \\
-        \frac{\theta - \theta_{wp}}{\theta_{ref} - \theta_{wp}} & \theta_{wp} \le \theta \le \theta_{ref} \\
-        1 & \theta > \theta_{ref}
-        \end{cases}
+        f_{\text{sm}} = \text{clip}\!\left(
+            \frac{\theta - \theta_{\text{wp}}}{\theta_{\text{fc}} - \theta_{\text{wp}}},\; 0,\; 1
+        \right)
         $$
 
-        **VPD Stress** ($f_{vpd}$):
-        Represents stomatal closure as a function of vapor pressure deficit
-        using an exponential decay:
+        **VPD Stress** ($f_{\text{vpd}}$):
+        Declines exponentially above the PFT-specific threshold $\text{VPD}_{\text{thr}}$,
+        reflecting stomatal closure under atmospheric drying:
 
         $$
-        f_{vpd} = \exp(-\gamma \cdot \max(0, VPD - VPD_{threshold}))
+        f_{\text{vpd}} = \exp\!\left(-\gamma \cdot \max(0,\; \text{VPD} - \text{VPD}_{\text{thr}})\right)
+        $$
+
+        **Combined modifier** (Liebig's Law of the Minimum):
+
+        $$
+        f_{\text{drought}} = \min(f_{\text{sm}},\; f_{\text{vpd}})
         $$
 
         Args:
-            soil_moisture: Volumetric soil water content ($m^3/m^3$).
-            vpd: Vapor Pressure Deficit in Pascals (Pa).
+            soil_moisture: Volumetric soil water content (m³ m⁻³).
+            vpd: Vapor Pressure Deficit (Pa).
 
         Returns:
-            The combined drought modifier $\min(f_{sm}, f_{vpd})$.
+            The combined drought modifier $f_{\text{drought}} \in [0, 1]$.
         """
         # Retrieve PFT-specific sensitivities
         theta_wp = self.pft_params.wilting_point
@@ -299,15 +339,69 @@ class Sgam:
         week_of_year: NDArray[np.float64],
         use_dynamic_allocation: bool | None = None,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-        """Compute carbon allocation fractions for leaf, stem, and root pools.
+        r"""Compute carbon allocation fractions for leaf, stem, and root pools.
+
+        When dynamic allocation is enabled, three modifiers shift fractions away
+        from PFT-specific base values $a^{(0)}$.
+
+        **Seasonality modifier** — sinusoidal preference for leaves in the growing
+        season (peaks at the local summer solstice, week 26 NH / week 52 SH):
+
+        $$
+        m_{\text{season}} = 0.15 \cdot \sin\!\left(\frac{2\pi(\text{week} - \phi)}{52}\right)
+        $$
+
+        where $\phi = 12$ for the Northern Hemisphere and $\phi = 38$ for the
+        Southern Hemisphere.
+
+        **Temperature modifier** — shifts allocation toward leaves above the
+        optimum temperature and toward roots below it, clipped to $\pm 0.1$:
+
+        $$
+        m_{\text{temp}} = \text{clip}\!\left(\frac{T - T_{\text{opt}}}{T_{\text{range}}},\; -0.1,\; 0.1\right)
+        $$
+
+        **Drought stress scores** — used to compute the root bonus:
+
+        $$
+        s_{\text{moisture}} = \text{clip}\!\left(1 - \frac{\theta}{\theta_{\text{mid}}},\; 0,\; 1\right),
+        \quad \theta_{\text{mid}} = \tfrac{1}{2}(\theta_{\text{wp}} + \theta_{\text{fc}})
+        $$
+
+        $$
+        s_{\text{vpd}} = \text{clip}\!\left(\frac{\text{VPD}}{\text{VPD}_{\text{thr}}},\; 0,\; 1\right)
+        $$
+
+        **Drought root bonus** — increases root allocation under water or
+        atmospheric stress (functional balance hypothesis):
+
+        $$
+        b_{\text{root}} = 0.15 \cdot \max(s_{\text{moisture}},\; s_{\text{vpd}})
+        $$
+
+        **Raw adjusted allocations** (floors prevent biologically unrealistic values):
+
+        $$
+        a_{\text{leaf}} = \max\!\left(0.05,\; a_{\text{leaf}}^{(0)} + m_{\text{season}} + m_{\text{temp}} - \tfrac{b_{\text{root}}}{2}\right)
+        $$
+
+        $$
+        a_{\text{stem}} = \max\!\left(0.01,\; a_{\text{stem}}^{(0)} - \tfrac{b_{\text{root}}}{2}\right)
+        $$
+
+        $$
+        a_{\text{root}} = \max\!\left(0.05,\; a_{\text{root}}^{(0)} - m_{\text{season}} - m_{\text{temp}} + b_{\text{root}}\right)
+        $$
+
+        The raw values are then normalised so that $f_{\text{leaf}} + f_{\text{stem}} + f_{\text{root}} = 1$.
 
         Args:
-            temperature: Weekly mean air temperature (degC).
-            soil_moisture: Weekly mean soil moisture content (normalized or mm).
+            temperature: Weekly mean air temperature (°C).
+            soil_moisture: Weekly mean volumetric soil moisture (m³ m⁻³).
             vpd: Weekly mean vapor pressure deficit (Pa).
             week_of_year: The week number of the simulation year (1 to 52).
             use_dynamic_allocation: If True, allocation varies with environmental
-                conditions. If False, returns normalized base allocations.
+                conditions. If False, returns normalised base allocations.
                 Defaults to self.use_dynamic_allocation.
 
         Returns:
@@ -401,19 +495,31 @@ class Sgam:
         NDArray[np.float64],
         NDArray[np.float64],
     ]:
-        """Partition incoming GPP into respiration, NPP, and allocation fractions.
+        r"""Partition incoming GPP into respiration, NPP, and allocation fractions.
+
+        GPP is first split between autotrophic respiration and net primary
+        productivity using the Carbon Use Efficiency:
+
+        $$\text{NPP} = \text{GPP} \times \text{CUE}$$
+
+        $$\text{Respiration} = \text{GPP} \times (1 - \text{CUE})$$
+
+        Each quantity is then apportioned across the three pools using the
+        dynamic allocation fractions $(f_{\text{leaf}}, f_{\text{stem}}, f_{\text{root}})$,
+        so for example $\text{NPP}_{\text{leaf}} = \text{GPP} \times f_{\text{leaf}} \times \text{CUE}$.
 
         Args:
             gpp: Weekly gross primary productivity (gC).
-            temperature: Weekly mean air temperature (degC).
-            soil_moisture: Weekly mean soil moisture content.
+            temperature: Weekly mean air temperature (°C).
+            soil_moisture: Weekly mean volumetric soil moisture (m³ m⁻³).
             vpd: Weekly mean vapor pressure deficit (Pa).
-            lue: Weekly mean light use efficiency (gC/MJ).
-            iwue: Weekly mean intrinsic water use efficiency (umol/mol).
-            week_of_year: Weekly timestep index of the year (1-52).
+            lue: Weekly mean light use efficiency (gC MJ⁻¹).
+            iwue: Weekly mean intrinsic water use efficiency (μmol mol⁻¹).
+            week_of_year: Weekly timestep index of the year (1–52).
 
         Returns:
-            Tuple of (respiration, npp, allocation) arrays.
+            Tuple of (respiration, npp, allocation) as (3, n) arrays, where
+            axis 0 is [leaf, stem, root].
         """
         carbon_use_efficiency, _, _ = self.compute_cue(lue, iwue)
 
@@ -460,7 +566,29 @@ class Sgam:
         root_pool_size: float,
         disturbance_severity: float,
     ) -> tuple[float, float, float, float, float]:
-        """Compute deltas from a disturbance event."""
+        r"""Compute pool deltas resulting from a disturbance event.
+
+        The response differs by PFT:
+
+        - **Crops**: any severity > 0 triggers complete harvest — all above-ground
+          biomass (leaf + stem) is removed from the system; root carbon transfers
+          to litter.
+        - **All other PFTs**: a fraction of the leaf pool proportional to severity
+          transfers to litter (partial defoliation by fire, grazing, or pest damage):
+          $\\Delta_\\text{leaf} = -P_\\text{leaf} \\times s \\times f_\\text{loss}$,
+          where $s$ is ``disturbance_severity`` and $f_\\text{loss}$ is
+          ``PftParams.disturbance_leaf_loss_frac``. Stem and root pools are unaffected.
+
+        Args:
+            leaf_pool_size: Current leaf pool carbon (gC).
+            stem_pool_size: Current stem pool carbon (gC).
+            root_pool_size: Current root pool carbon (gC).
+            disturbance_severity: Fractional severity of the event, in (0, 1].
+
+        Returns:
+            Tuple of (Δ_leaf, Δ_stem, Δ_root, Δ_litter, Δ_removed).
+            Negative deltas indicate carbon leaving that pool.
+        """
         if self.plant_type == PlantFunctionalType.CROP:
             # Any severity > 0 is treated as a clear cut / harvest.
             # Hence, pools are zeroed are disturbance loss = pool size.
@@ -502,6 +630,36 @@ class Sgam:
         NDArray[np.float64],
         NDArray[np.float64],
     ]:
+        r"""Run the forward-Euler weekly integration loop.
+
+        At each timestep, first-order turnover is computed for each live pool:
+
+        $$\Delta P_{\text{pool}}^{\text{turn}} = k_{\text{pool}} \cdot P_{\text{pool}}$$
+
+        The pools are then updated (growth minus turnover):
+
+        $$P_{\text{pool}}(t) = P_{\text{pool}}(t-1) + \text{NPP}_{\text{pool}}(t) - \Delta P_{\text{pool}}^{\text{turn}}(t)$$
+
+        Turnover from all three live pools accumulates in the litter pool.
+        If ``disturbance_severity[t] > 0``, disturbance deltas are applied
+        after the natural update (see ``_compute_disturbance_deltas``).
+
+        Args:
+            leaf_pool_init: Initial leaf pool carbon (gC).
+            stem_pool_init: Initial stem pool carbon (gC).
+            root_pool_init: Initial root pool carbon (gC).
+            leaf_npp: Weekly leaf NPP flux (gC), length n.
+            stem_npp: Weekly stem NPP flux (gC), length n.
+            root_npp: Weekly root NPP flux (gC), length n.
+            disturbance_severity: Weekly disturbance severity in [0, 1], length n.
+            litter_pool_init: Initial litter pool carbon (gC). Defaults to 0.0.
+            removed_init: Initial removed-carbon accumulator (gC). Defaults to 0.0.
+
+        Returns:
+            Tuple of (pools, turnover, disturbance) as (5, n), (3, n), and (3, n)
+            arrays. Pool axis order: [leaf, stem, root, litter, removed].
+            Turnover/disturbance axis order: [leaf, stem, root].
+        """
         leaf_pool_series = []
         stem_pool_series = []
         root_pool_series = []
