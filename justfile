@@ -19,7 +19,7 @@ coverage:
 typecheck:
   mypy src/sgam
 
-# Regenerate tables and figures in docs/science.md from pft_defaults.toml.
+# Regenerate PFT table and figures referenced in docs/science.md.
 _gen-science-assets:
   python scripts/gen_science_assets.py
 

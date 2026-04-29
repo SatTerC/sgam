@@ -10,9 +10,30 @@ The model operates at weekly timesteps using a forward Euler integration scheme,
 
 The central question the model addresses is: given a prescribed Gross Primary Productivity (GPP), how does a plant distribute that carbon among competing sinks under varying temperature, soil moisture, and atmospheric demand? The [`Sgam`](API_Reference/sgam.md#sgam.sgam.Sgam) class implements the full weekly integration loop and returns a [`SgamOutput`](API_Reference/sgam.md#sgam.sgam.SgamOutput) containing all pools, fluxes, and diagnostics.
 
-<!-- FIGURE_SCHEMATIC_START -->
-![Carbon pool schematic](_static/images/schematic.png)
-<!-- FIGURE_SCHEMATIC_END -->
+```mermaid
+flowchart TD
+    GPP["GPP"]
+    RESP["Respiration"]
+    LEAF["Leaf"]
+    STEM["Stem"]
+    ROOT["Root"]
+    LIT["Litter"]
+    REM["Removed"]
+
+    GPP -- "NPP" --> LEAF
+    GPP -- "NPP" --> STEM
+    GPP -- "NPP" --> ROOT
+    GPP -- "1 − CUE" --> RESP
+
+    LEAF -- "turnover" --> LIT
+    STEM -- "turnover" --> LIT
+    ROOT -- "turnover" --> LIT
+
+    LEAF -. "disturbance" .-> LIT
+    LEAF -. "disturbance (crops)" .-> REM
+    STEM -. "disturbance (crops)" .-> REM
+    ROOT -. "disturbance (crops)" .-> LIT
+```
 
 ## Carbon Use Efficiency
 
@@ -37,9 +58,7 @@ $$\text{NPP} = \text{GPP} \times \text{CUE}$$
 
 and the remainder $\text{GPP} \times (1 - \text{CUE})$ is autotrophic respiration (see [`SgamRespiration`](API_Reference/sgam.md#sgam.sgam.SgamRespiration)). The normalised scores and CUE value are recorded in [`SgamDiagnostics`](API_Reference/sgam.md#sgam.sgam.SgamDiagnostics).
 
-<!-- FIGURE_CUE_START -->
 ![CUE response](_static/images/cue.png)
-<!-- FIGURE_CUE_END -->
 
 ## Drought Modifier
 
@@ -60,9 +79,7 @@ Productivity is limited by whichever resource is most constraining:
 
 $$f_{\text{drought}} = \min(f_{\text{sm}},\; f_{\text{vpd}})$$
 
-<!-- FIGURE_DROUGHT_START -->
 ![Drought modifier](_static/images/drought.png)
-<!-- FIGURE_DROUGHT_END -->
 
 ## Dynamic Allocation
 
@@ -98,9 +115,7 @@ $$a_{\text{root}} = \max\!\left(0.05,\; a_{\text{root}}^{(0)} - m_{\text{season}
 
 where the floors prevent biologically unrealistic allocation. The fractions used for partitioning are then normalised so that $f_{\text{leaf}} + f_{\text{stem}} + f_{\text{root}} = 1$.
 
-<!-- FIGURE_ALLOCATION_START -->
 ![Dynamic allocation](_static/images/allocation.png)
-<!-- FIGURE_ALLOCATION_END -->
 
 ## Turnover and Litter
 
@@ -127,30 +142,13 @@ Disturbance fluxes at each timestep are recorded in [`SgamDisturbance`](API_Refe
 
 The model includes four [`PlantFunctionalType`](API_Reference/pft.md#sgam.pft.PlantFunctionalType) values whose [`PftParams`](API_Reference/pft.md#sgam.pft.PftParams) encode distinct ecological strategies. Default parameter sets can be retrieved with [`get_default_pft_params`](API_Reference/pft.md#sgam.pft.get_default_pft_params).
 
-<!-- PFT_TABLE_START -->
-| Parameter | Tree | Grass | Shrub | Crop |
-|---|---|---|---|---|
-| Leaf base allocation | 0.25 | 0.45 | 0.2 | 0.4 |
-| Stem base allocation | 0.45 | 0.1 | 0.4 | 0.4 |
-| Root base allocation | 0.3 | 0.45 | 0.4 | 0.2 |
-| Leaf turnover (wk⁻¹) | 0.012 | 0.035 | 0.01 | 0.05 |
-| Stem turnover (wk⁻¹) | 0.0002 | 0.015 | 0.002 | 0.025 |
-| Root turnover (wk⁻¹) | 0.01 | 0.025 | 0.01 | 0.03 |
-| LUE_max (gC MJ⁻¹) | 2.5 | 3 | 2.2 | 4.2 |
-| iWUE_max (μmol mol⁻¹) | 450 | 350 | 650 | 300 |
-| VPD threshold (Pa) | 800 | 500 | 1200 | 400 |
-| VPD sensitivity (Pa⁻¹) | 0.0005 | 0.0008 | 0.0003 | 0.0012 |
-| Wilting point (m³ m⁻³) | 0.12 | 0.08 | 0.05 | 0.15 |
-| Field capacity (m³ m⁻³) | 0.35 | 0.3 | 0.25 | 0.4 |
-<!-- PFT_TABLE_END -->
+--8<-- "_static/pft_table.md"
 
 Trees invest heavily in long-lived structural carbon (45% stem base allocation; stem residence time ~96 years), while grasses prioritise rapid leaf and root turnover.
 Shrubs are characterised by high water-use efficiency and drought tolerance (iWUE_max 650 μmol mol⁻¹; VPD threshold 1200 Pa; lowest wilting point).
 Crops are optimised for above-ground productivity with the highest LUE_max and lowest water-use efficiency, reflecting high-input agricultural conditions.
 
-<!-- FIGURE_RADAR_START -->
 ![PFT radar chart](_static/images/radar.png)
-<!-- FIGURE_RADAR_END -->
 
 ## Mass Balance
 
