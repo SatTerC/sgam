@@ -9,7 +9,7 @@ lint:
 
 # Run the full test suite.
 test:
-  pytest
+  pytest --log-cli-level=INFO
 
 # Run tests with coverage report (requires pytest-cov).
 coverage:

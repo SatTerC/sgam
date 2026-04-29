@@ -7,6 +7,7 @@ requires no extra dependency. It fails only if runtime regresses past a
 hard ceiling, giving CI a canary for accidental Python-loop additions.
 """
 
+import logging
 import time
 
 import numpy as np
@@ -15,7 +16,7 @@ from sgam.pft import PlantFunctionalType
 from sgam.sgam import Sgam
 
 N_WEEKS = 520  # 10 years
-MAX_SECONDS = 2.0  # hard ceiling — adjust after first baseline run
+MAX_SECONDS = 0.5  # hard ceiling — adjust after first baseline run
 
 
 def make_inputs(n: int) -> dict:
@@ -42,6 +43,7 @@ class TestBenchmark:
         for pft in PlantFunctionalType:
             Sgam(pft).forward(**inputs)
         elapsed = time.perf_counter() - t0
+        logging.info(f"forward() over {N_WEEKS} weeks × 4 PFTs took {elapsed:.2f}s")
         assert elapsed < MAX_SECONDS, (
             f"forward() over {N_WEEKS} weeks × 4 PFTs took {elapsed:.2f}s "
             f"(ceiling {MAX_SECONDS}s). Check for accidental Python-loop regressions."
