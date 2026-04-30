@@ -1,17 +1,10 @@
 repos:
   - repo: local
     hooks:
-      - id: lint
-        name: lint
+      - id: just
+        name: just
         language: system
         pass_filenames: false
-        entry: just lint
-        stages: [pre-commit]
-        verbose: true
-      - id: test
-        name: unit tests
-        language: system
-        pass_filenames: false
-        entry: just test
+        entry: just lint test typecheck
         stages: [pre-commit]
         verbose: true

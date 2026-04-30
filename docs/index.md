@@ -3,41 +3,17 @@ title: Home
 icon: lucide/house
 ---
 
-# SGAM: Simplified Growth/GPP Allocation Model
+# SGAM: Simplified Growth and Allocation Model
 
+SGAM is a Python implementation of a simplified plant growth and carbon allocation model.
+Given weekly environmental drivers — gross primary productivity (GPP), temperature, soil moisture, vapour pressure deficit (VPD), light use efficiency (LUE), and intrinsic water use efficiency (iWUE) — it simulates the allocation of carbon to leaf, stem, and root biomass pools for four plant functional types: tree, grass, shrub, and crop.
+It accounts for dynamic allocation, autotrophic respiration, litterfall turnover, and disturbance or harvest events, and enforces strict mass balance at every timestep.
 
-## Installation
+SGAM is designed as a component of the [SatTerC](https://github.com/SatTerC/satterc) modular terrestrial carbon modelling framework, where it sits between a photosynthesis model (which produces GPP) and a soil carbon model (which consumes litter inputs).
+It can also be used as a standalone package.
 
-Install the package via `pip` or `uv`.
-Currently it is only available from GitHub.
+## Documentation
 
-=== "pip"
-
-    ``` sh
-    pip install git+https://github.com/satterc/sgam
-    ```
-
-=== "uv"
-
-    ``` sh
-    uv add git+https://github.com/satterc/sgam
-    ```
-
-This will install a package called `sgam` into your environment.
-
-## Basic usage
-
-`sgam` provides a class, `Sgam`, which provides the main user interface to the model implementation.
-
-```python
-from sgam import Sgam
-
-# To do
-params = ...
-forward_data = ...
-
-model = Sgam(**params)
-
-```
-
-For more details on the contents of this package, see the API reference.
+- [Getting Started](getting-started.md) — installation and a worked example
+- [Science](science.md) — model description and equations
+- [API Reference](API_Reference/sgam.md) — full class and function documentation

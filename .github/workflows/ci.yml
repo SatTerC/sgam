@@ -7,7 +7,7 @@ on:
     types: [checks_requested]
 
 jobs:
-  lint_test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,4 +15,17 @@ jobs:
       - run: uv python install
       - run: uv sync --group dev --locked
       - run: uv run just lint
-      - run: uv run just test
+      - run: uv run just typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --group dev --locked
+      - run: uv run --python ${{ matrix.python-version }} just test-cov
+

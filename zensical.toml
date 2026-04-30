@@ -9,7 +9,7 @@ copyright = "Copyright &copy; 2026 The authors"
 
 # Katex
 extra_javascript = [
-    "javascripts/katex.js",
+    "_static/js/katex.js",
     "https://unpkg.com/katex@0/dist/katex.min.js",
     "https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"
 ]
@@ -40,12 +40,12 @@ features = [
 
 [[project.theme.palette]]
 scheme = "default"
-toggle.icon = "lucide/sun"
+toggle.icon = "lucide/moon"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 scheme = "slate"
-toggle.icon = "lucide/moon"
+toggle.icon = "lucide/sun"
 toggle.name = "Switch to light mode"
 
 
@@ -63,6 +63,9 @@ generic = true
 custom_fences = [
   { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
 ]
+
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["docs"]
 
 [project.markdown_extensions.pymdownx.tabbed]
 alternate_style = true

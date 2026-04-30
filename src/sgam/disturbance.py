@@ -1,5 +1,4 @@
-"""
-Disturbance detection module for SGAM.
+"""Disturbance detection module for SGAM.
 
 This module provides functionality to identify disturbance events (such as
 harvest, fire, or pest damage) based on rapid declines in GPP and LAI.
@@ -31,7 +30,7 @@ def aggregate_to_weekly(daily_severity: NDArray[np.float64]) -> NDArray[np.float
     if remainder > 0:
         daily_severity = np.pad(daily_severity, (0, 7 - remainder), mode="constant")
 
-    weekly_max = daily_severity.reshape(-1, 7).max(axis=1)
+    weekly_max: NDArray[np.float64] = daily_severity.reshape(-1, 7).max(axis=1)
 
     return weekly_max
 
@@ -80,12 +79,29 @@ class Disturbances:
         lai: NDArray[np.float64],
         aggregate: bool = False,
     ) -> NDArray[np.float64]:
-        """Identify disturbance events and compute their severity.
+        r"""Identify disturbance events and compute their severity.
 
-        A disturbance event is detected when all three conditions are met:
-        1. Temperature exceeds the growing season threshold
-        2. GPP declines by more than the disturbance threshold (fraction)
-        3. LAI declines by more than the disturbance threshold (fraction)
+        A disturbance event is detected on day $t$ when all three conditions
+        are met simultaneously:
+
+        1. Temperature exceeds the growing-season threshold:
+           $T_t > T_{\text{gs}}$
+        2. GPP declines by more than the disturbance threshold:
+           $-\Delta\text{GPP}_t > \delta$
+        3. LAI declines by more than the disturbance threshold:
+           $-\Delta\text{LAI}_t > \delta$
+
+        where the relative decline of a variable $x$ is
+
+        $$\Delta x_t = \frac{x_t - x_{t-1}}{x_{t-1}}$$
+
+        and $\delta$ is ``disturbance_threshold``.
+
+        Severity is the larger of the two relative declines, clipped to $[0, 1]$:
+
+        $$\text{severity}_t = \text{clip}\!\left(\max(-\Delta\text{GPP}_t,\; -\Delta\text{LAI}_t),\; 0,\; 1\right)$$
+
+        On non-disturbance days severity is set to 0.
 
         Note: Input data should be at DAILY timestep.
 
@@ -98,9 +114,8 @@ class Disturbances:
                 (default), return daily values.
 
         Returns:
-            Disturbance severity as a fraction of biomass lost (0-1).
-            Non-disturbance days have value 0.
-            If aggregate=True, values are weekly; otherwise daily.
+            Disturbance severity in [0, 1]; 0 on non-disturbance days.
+            If ``aggregate=True``, length is ``ceil(n / 7)``; otherwise ``n``.
         """
         Δgpp = np.zeros_like(gpp)
         Δlai = np.zeros_like(lai)

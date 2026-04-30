@@ -4,33 +4,53 @@ build-backend = "uv_build"
 
 [project]
 name = "sgam"
-version = "0.2.1"
+version = "0.2.2"
 description = "A Simplified Growth and Allocation Model (SGAM) for the allocation of gross primary productivity (GPP) to plant carbon pools across different plant types."
 readme = "README.md"
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" },
     { name = "vmyrgiotis", email = "" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.4.2",
 ]
-
-[project.scripts]
-sgam = "sgam:main"
 
 [dependency-groups]
 dev = [
     {include-group = "test"},
     {include-group = "docs"},
     "pre-commit>=4.6.0",
+    "pyright>=1.1.409",
     "ruff>=0.15.4",
     "rust-just>=1.46.0",
 ]
 docs = [
     "mkdocstrings-python>=2.0.3",
     "zensical>=0.0.24",
+    "matplotlib>=3.5",
 ]
 test = [
     "pytest>=9.0.2",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.0",
 ]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "NPY", # numpy-specific rules (deprecated API etc.)
+    "D",   # pydocstyle
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Except tests and scripts from docstring requirements
+"tests/**" = ["D"]
+"scripts/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

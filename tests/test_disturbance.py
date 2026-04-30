@@ -52,3 +52,14 @@ class TestDisturbanceDetection:
         )
         disturbance_count = np.count_nonzero(result)
         assert disturbance_count == 2
+
+    def test_aggregate_produces_weekly_array(self):
+        """aggregate=True should return one value per 7 days."""
+        n_days = 70
+        temperature = np.full(n_days, 15.0)
+        gpp = np.concatenate([np.full(35, 5.0), np.full(35, 0.5)])
+        lai = np.concatenate([np.full(35, 1.0), np.full(35, 0.1)])
+
+        dist = Disturbances(growing_season_limit=10.0, disturbance_threshold=0.3)
+        result = dist.forward(temperature, gpp, lai, aggregate=True)
+        assert len(result) == n_days // 7

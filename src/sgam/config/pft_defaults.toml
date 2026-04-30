@@ -18,6 +18,8 @@ wilting_point = 0.12
 field_capacity = 0.35
 vpd_threshold = 800.0
 vpd_sensitivity = 0.0005
+temp_optimum = 20.0
+temp_sensitivity = 40.0
 
 [grass]
 leaf_base_allocation = 0.45
@@ -35,6 +37,8 @@ wilting_point = 0.08
 field_capacity = 0.30
 vpd_threshold = 500.0
 vpd_sensitivity = 0.0008
+temp_optimum = 20.0
+temp_sensitivity = 40.0
 
 [shrub]
 leaf_base_allocation = 0.20
@@ -52,6 +56,8 @@ wilting_point = 0.05
 field_capacity = 0.25
 vpd_threshold = 1200.0
 vpd_sensitivity = 0.0003
+temp_optimum = 20.0
+temp_sensitivity = 40.0
 
 [crop]
 leaf_base_allocation = 0.40
@@ -69,3 +75,5 @@ wilting_point = 0.15
 field_capacity = 0.40
 vpd_threshold = 400.0
 vpd_sensitivity = 0.0012
+temp_optimum = 20.0
+temp_sensitivity = 40.0
